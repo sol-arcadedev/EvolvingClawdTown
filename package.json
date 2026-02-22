@@ -13,6 +13,7 @@
     "db:migrate": "npm run db:migrate --workspace=packages/backend"
   },
   "devDependencies": {
+    "canvas": "^3.2.1",
     "typescript": "^5.5.3"
   }
 }

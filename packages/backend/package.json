@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "tsx src/db/migrate.ts",
-    "seed": "tsx scripts/seed-test-wallets.ts"
+    "seed": "tsx scripts/seed-test-wallets.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.6",
@@ -28,6 +30,7 @@
     "@types/pg": "^8.11.6",
     "@types/ws": "^8.5.10",
     "tsx": "^4.15.0",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "vitest": "^4.0.18"
   }
 }

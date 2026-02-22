@@ -1,9 +1,10 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 import { Container, Graphics, Ticker } from 'pixi.js';
 import { createApp } from './renderer';
 import { Camera } from './Camera';
 import { HouseSprite, PLOT_W, PLOT_H } from './HouseSprite';
 import { FloatingTextManager } from './FloatingText';
+import { loadSpriteAssets } from './SpriteAssets';
 import { useTownStore } from '../hooks/useTownStore';
 import { WalletState, TradeEvent } from '../types';
 
@@ -23,7 +24,7 @@ export default function TownMap() {
 
     const init = async () => {
       const canvas = canvasRef.current!;
-      const app = await createApp(canvas);
+      const [app] = await Promise.all([createApp(canvas), loadSpriteAssets()]);
       if (destroyed) { app.destroy(); return; }
 
       const worldContainer = new Container();
