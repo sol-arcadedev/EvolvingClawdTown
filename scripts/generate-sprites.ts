@@ -416,542 +416,585 @@ function holoRing(c: Ctx, cx: number, cy: number, rx: number, ry: number, col: s
   c.restore();
 }
 
-// ─── TIER 2: Medium Commercial Building + Holographic Ads ────────────
+// ─── 3D depth helpers ────────────────────────────────────────────────
+
+/** Draw a 3D "side face" on the right edge of a building section (darker, angled) */
+function sideface(c: Ctx, x: number, y: number, depth: number, h: number, col: string) {
+  for (let i = 0; i < h; i++) {
+    const v = Math.max(0, parseInt(col.slice(1, 3), 16) - 8);
+    const darken = Math.floor(i * 0.3);
+    const r = Math.max(0, v - darken), g = Math.max(0, v - darken), b = Math.max(0, v + 12 - darken);
+    rect(c, x, y + i, depth, 1, `rgb(${r},${g},${b})`);
+  }
+}
+
+/** Draw a roof/top face (lighter, to suggest looking down at the top) */
+function topface(c: Ctx, x: number, y: number, w: number, depth: number, col: string) {
+  for (let i = 0; i < depth; i++) {
+    c.save(); c.globalAlpha = 0.7 - i * 0.15;
+    rect(c, x + i, y + i, w, 1, col);
+    c.restore();
+  }
+}
+
+/** Protruding balcony/ledge with visible side and bottom */
+function balcony(c: Ctx, x: number, y: number, w: number, depth: number) {
+  // Top surface
+  rect(c, x, y, w, 1, C.wallLight);
+  // Front face
+  rect(c, x, y + 1, w, depth - 1, C.wallAccent);
+  // Bottom edge (dark)
+  hline(c, y + depth, x, x + w - 1, C.wallEdge);
+  // Side face (right)
+  rect(c, x + w, y, 2, depth + 1, C.wallEdge);
+  // Railing
+  hline(c, y, x, x + w - 1, C.scaffold);
+  for (let rx = x + 2; rx < x + w; rx += 3) vline(c, rx, y - 2, y, C.scaffoldDk);
+}
+
+// ─── TIER 2: L-Shaped Commercial Building with Depth ─────────────────
 function drawTier2(c: Ctx) {
   drawGround(c);
-  const bx = 6, by = 22, bw = 50, bh = 66;
 
-  // Body gradient — three-panel glass facade effect
-  for (let i = 0; i < bh; i++) {
-    const v = 9 + Math.floor((i / bh) * 13);
-    // Left panel
-    rect(c, bx, by + i, Math.floor(bw / 3), 1, `rgb(${v},${v},${v + 30})`);
-    // Center panel (slightly brighter — glass)
-    rect(c, bx + Math.floor(bw / 3), by + i, Math.floor(bw / 3), 1, `rgb(${v + 2},${v + 2},${v + 34})`);
-    // Right panel
-    rect(c, bx + Math.floor(bw * 2 / 3), by + i, bw - Math.floor(bw * 2 / 3), 1, `rgb(${v - 1},${v - 1},${v + 26})`);
+  // This building has an L-shape: a taller left section + shorter right wing
+  // with visible side faces for 3D depth
+  const SD = 4; // side depth in pixels
+
+  // ── LEFT TOWER (taller section) ──
+  const lx = 6, ly = 20, lw = 30, lh = 68;
+  // Front face gradient
+  for (let i = 0; i < lh; i++) {
+    const v = 9 + Math.floor((i / lh) * 14);
+    rect(c, lx, ly + i, lw, 1, `rgb(${v},${v},${v + 30})`);
+  }
+  // Right side face (3D depth)
+  sideface(c, lx + lw, ly, SD, lh, '#060618');
+  // Top face
+  topface(c, lx, ly - 2, lw + SD, 2, C.roofMid);
+  // Left edge highlight
+  rect(c, lx, ly, 2, lh, C.wallLight);
+
+  // Floor bands — left tower
+  for (let i = 1; i <= 9; i++) {
+    const fy = ly + i * 7;
+    if (fy < ly + lh) hline(c, fy, lx, lx + lw + SD - 1, C.wallAccent);
+  }
+  // Windows — left tower
+  for (let row = 0; row < 9; row++) {
+    const wy = ly + 3 + row * 7;
+    if (wy + 3 >= ly + lh - 8) break;
+    winRow(c, wy, lx + 3, lx + lw - 1, 3, 3, 3, row * 23 + 7, 0.8);
   }
 
-  // Panel divider columns
-  rect(c, bx, by, 2, bh, C.wallLight);
-  rect(c, bx + bw - 2, by, 2, bh, C.wallEdge);
-  rect(c, bx + Math.floor(bw / 3) - 1, by, 2, bh, C.wallAccent);
-  rect(c, bx + Math.floor(bw * 2 / 3) - 1, by, 2, bh, C.wallAccent);
-
+  // ── RIGHT WING (shorter, protruding forward) ──
+  const rx = lx + lw + SD, ry = ly + 24, rw = 20, rh = lh - 24;
+  // Front face
+  for (let i = 0; i < rh; i++) {
+    const v = 11 + Math.floor((i / rh) * 12);
+    rect(c, rx, ry + i, rw, 1, `rgb(${v + 2},${v + 2},${v + 32})`);
+  }
+  // Right side face
+  sideface(c, rx + rw, ry, SD - 1, rh, '#050514');
+  // Top face of right wing
+  topface(c, rx, ry - 2, rw + SD - 1, 2, C.roofLight);
   // Floor bands
-  for (let i = 1; i <= 8; i++) hline(c, by + i * 7 + 2, bx, bx + bw - 1, C.wallAccent);
-
-  // Windows — 8 floors × varied
-  for (let row = 0; row < 8; row++) {
-    const wy = by + 3 + row * 7 + (row > 0 ? 2 : 0);
-    if (wy + 4 > by + bh - 8) break;
-    winRow(c, wy, bx + 3, bx + bw - 2, 3, 3, 3, row * 23 + 7, 0.8);
+  for (let i = 1; i <= 6; i++) {
+    const fy = ry + i * 7;
+    if (fy < ry + rh) hline(c, fy, rx, rx + rw + SD - 2, C.wallAccent);
+  }
+  // Windows — right wing
+  for (let row = 0; row < 6; row++) {
+    const wy = ry + 3 + row * 7;
+    if (wy + 3 >= ry + rh - 8) break;
+    winRow(c, wy, rx + 3, rx + rw - 1, 3, 3, 3, row * 17 + 50, 0.75);
   }
 
-  // Neon vertical edges — dual color glow
-  neonV(c, bx, by, by + bh, C.nCyan, 2, 0.22);
-  neonV(c, bx + 1, by, by + bh, C.nCyanDim, 1, 0.08);
-  neonV(c, bx + bw - 1, by, by + bh, C.nPink, 2, 0.22);
-  neonV(c, bx + bw - 2, by, by + bh, C.nPinkDim, 1, 0.08);
-  // Center column neons
-  neonV(c, bx + Math.floor(bw / 3) - 1, by, by + bh, C.nGoldDim, 1, 0.1);
-  neonV(c, bx + Math.floor(bw * 2 / 3), by, by + bh, C.nPurpleDim, 1, 0.1);
+  // ── Protruding balconies on left tower ──
+  for (const brow of [2, 4, 6]) {
+    const by_ = ly + 4 + brow * 7;
+    if (by_ < ly + lh - 10) balcony(c, lx - 4, by_, 6, 3);
+  }
 
-  // Horizontal neon bands — multiple colors
-  neonH(c, by + 11, bx + 3, bx + bw - 3, C.nCyan);
-  neonH(c, by + 25, bx + 3, bx + bw - 3, C.nPink);
-  neonH(c, by + 39, bx + 3, bx + bw - 3, C.nGold);
-  neonH(c, by + 53, bx + 3, bx + bw - 3, C.nPurple);
+  // ── Recessed entrance section (cut-in at base) ──
+  const ex = lx + 8, ey = ly + lh - 12, ew = 16, eh = 12;
+  rect(c, ex, ey, ew, eh, '#050510'); // deep recess
+  rect(c, ex, ey, ew, 1, C.wallAccent); // top of recess
+  rect(c, ex, ey, 1, eh, C.wallMid);    // left inner wall
+  rect(c, ex + ew - 1, ey, 1, eh, C.wallEdge); // right inner wall
+  // Lobby glow inside recess
+  c.save(); c.globalAlpha = 0.25; rect(c, ex + 2, ey + 3, ew - 4, eh - 4, C.nGold); c.restore();
+  neonH(c, ey, ex, ex + ew, C.nGold, 1, 0.3);
+  neonV(c, ex, ey, ey + eh, C.nGoldDim);
+  neonV(c, ex + ew - 1, ey, ey + eh, C.nGoldDim);
 
-  // ── Holographic floating billboard (right side) ──
-  holoPanel(c, bx + bw + 2, by + 8, 10, 22, C.nPink, 0.14, (c, x, y, _w, _h) => {
-    // Ad content: abstract shapes
+  // ── Awning over entrance (protruding) ──
+  rect(c, ex - 3, ey - 3, ew + 6, 2, C.roofDark);
+  rect(c, ex - 3, ey - 1, ew + 6, 1, C.wallEdge); // underside shadow
+  neonH(c, ey - 3, ex - 3, ex + ew + 3, C.nGold);
+
+  // ── Neon edges ──
+  neonV(c, lx, ly, ly + lh, C.nCyan, 2, 0.22);
+  neonV(c, lx + lw - 1, ly, ly + lh, C.nPinkDim, 1, 0.15);
+  neonV(c, rx + rw - 1, ry, ry + rh, C.nPink, 2, 0.2);
+  // Horizontal neon bands
+  neonH(c, ly + 14, lx + 3, lx + lw - 1, C.nCyan);
+  neonH(c, ly + 35, lx + 3, rx + rw - 1, C.nPink);
+  neonH(c, ly + 56, lx + 3, rx + rw - 1, C.nGold);
+  // Junction neon where two sections meet
+  neonV(c, lx + lw + SD - 1, ry, ry + rh, C.nPurpleDim, 1, 0.12);
+
+  // ── Roof neon ──
+  neonH(c, ly - 1, lx, lx + lw + SD, C.nCyan, 2, 0.3);
+  neonH(c, ry - 1, rx, rx + rw + SD - 1, C.nPink, 2, 0.25);
+
+  // ── Holographic billboard floating off the right wing ──
+  holoPanel(c, rx + rw + SD + 1, ry + 4, 10, 20, C.nPink, 0.14, (c, x, y) => {
     rect(c, x + 2, y + 3, 6, 3, C.nPink);
-    c.save(); c.globalAlpha = 0.8;
-    rect(c, x + 2, y + 3, 6, 1, C.nPinkGlow);
-    c.restore();
+    c.save(); c.globalAlpha = 0.8; rect(c, x + 2, y + 3, 6, 1, C.nPinkGlow); c.restore();
     rect(c, x + 2, y + 8, 4, 2, C.nGold);
     rect(c, x + 2, y + 12, 6, 2, C.nGreen);
     rect(c, x + 2, y + 16, 3, 2, C.nBlue);
-    rect(c, x + 6, y + 16, 3, 2, C.nOrange);
-  });
-  // Projector beams from building to holo-billboard
-  c.save(); c.globalAlpha = 0.08;
-  for (let i = 0; i < 3; i++) {
-    const py = by + 12 + i * 6;
-    hline(c, py, bx + bw, bx + bw + 2, C.nPink);
-  }
-  c.restore();
-
-  // ── Holographic company logo (above roof) ──
-  holoPanel(c, bx + 12, by - 14, 26, 10, C.nCyan, 0.1, (c, x, y) => {
-    // Abstract logo: triangle + text lines
-    c.save(); c.globalAlpha = 0.7;
-    // Diamond shape
-    px(c, x + 6, y + 2, C.nCyanGlow);
-    px(c, x + 5, y + 3, C.nCyan);
-    px(c, x + 7, y + 3, C.nCyan);
-    px(c, x + 4, y + 4, C.nCyanDim);
-    px(c, x + 8, y + 4, C.nCyanDim);
-    px(c, x + 5, y + 5, C.nCyan);
-    px(c, x + 7, y + 5, C.nCyan);
-    px(c, x + 6, y + 6, C.nCyanGlow);
-    // Text lines
-    hline(c, y + 3, x + 12, x + 22, C.nCyanDim);
-    hline(c, y + 5, x + 12, x + 20, C.nCyanDim);
-    hline(c, y + 7, x + 12, x + 18, C.nCyanDim);
-    c.restore();
-  });
-
-  // Door — grand with awning
-  const dx = bx + 17, dy = by + bh - 10;
-  rect(c, dx, dy, 14, 10, C.wDark);
-  c.save(); c.globalAlpha = 0.2; rect(c, dx + 2, dy + 2, 10, 6, C.nGold); c.restore();
-  neonH(c, dy, dx, dx + 14, C.nGold, 1, 0.3);
-  neonV(c, dx, dy, dy + 10, C.nGoldDim);
-  neonV(c, dx + 13, dy, dy + 10, C.nGoldDim);
-  glow(c, dx, dy, 14, 10, C.nGold, 2, 0.1);
-  // Awning
-  rect(c, dx - 3, dy - 3, 20, 3, C.roofDark);
-  neonH(c, dy - 3, dx - 3, dx + 17, C.nGold);
-
-  // Roof structure
-  rect(c, bx - 2, by - 2, bw + 4, 2, C.roofDark);
-  neonH(c, by - 1, bx, bx + bw, C.nCyan, 2, 0.3);
-  neonH(c, by - 2, bx + 4, bx + bw - 4, C.nPink);
-
-  // Rooftop equipment
-  rect(c, bx + 3, by - 6, 8, 4, C.scaffoldDk);
-  rect(c, bx + 3, by - 6, 8, 1, C.scaffold);
-  rect(c, bx + 38, by - 7, 8, 5, C.scaffoldDk);
-  rect(c, bx + 38, by - 7, 8, 1, C.scaffold);
-  px(c, bx + 41, by - 6, C.scaffoldLt);
-
-  // Antenna with beacon
-  vline(c, bx + 28, by - 2, by - 12, C.scaffold);
-  px(c, bx + 28, by - 12, C.nCyan);
-  glow(c, bx + 28, by - 12, 1, 1, C.nCyan, 2, 0.35);
-
-  // Ground floor shopfronts with holographic displays
-  rect(c, bx + 3, by + bh - 8, 14, 6, C.wDark);
-  c.save(); c.globalAlpha = 0.2; rect(c, bx + 4, by + bh - 7, 12, 4, C.nGreen); c.restore();
-  neonH(c, by + bh - 8, bx + 3, bx + 17, C.nGreen);
-  rect(c, bx + 33, by + bh - 8, 14, 6, C.wDark);
-  c.save(); c.globalAlpha = 0.2; rect(c, bx + 34, by + bh - 7, 12, 4, C.nOrange); c.restore();
-  neonH(c, by + bh - 8, bx + 33, bx + 47, C.nOrange);
-
-  // Ground neon reflection
-  c.save(); c.globalAlpha = 0.06;
-  rect(c, bx, by + bh, bw, 4, C.nCyan);
-  rect(c, bx + bw + 2, by + 28, 10, 2, C.nPink);
-  c.restore();
-}
-
-// ─── TIER 3: Skyscraper with Holographic Projections ─────────────────
-function drawTier3(c: Ctx) {
-  drawGround(c);
-
-  const bx = 4, by = 8, bw = 56, bh = 80;
-  const setbackY = by + 22;
-  const inset = 5;
-
-  // ── Building structure ──
-  // Upper section (narrower, penthouse floors)
-  for (let i = 0; i < setbackY - by; i++) {
-    const v = 7 + Math.floor((i / (setbackY - by)) * 10);
-    rect(c, bx + inset, by + i, bw - inset * 2, 1, `rgb(${v},${v},${v + 32})`);
-  }
-  // Lower section (full width)
-  for (let i = 0; i < by + bh - setbackY; i++) {
-    const v = 9 + Math.floor((i / (by + bh - setbackY)) * 12);
-    rect(c, bx, setbackY + i, bw, 1, `rgb(${v},${v},${v + 30})`);
-  }
-
-  // Setback ledge with neon
-  rect(c, bx, setbackY - 1, bw, 2, C.wallAccent);
-  neonH(c, setbackY - 1, bx, bx + bw, C.nGold, 2, 0.3);
-  // Ledge balcony detail
-  for (let x = bx + 2; x < bx + inset; x += 3) {
-    vline(c, x, setbackY, setbackY + 3, C.scaffoldDk);
-    hline(c, setbackY + 3, x, x + 2, C.scaffold);
-  }
-  for (let x = bx + bw - inset; x < bx + bw - 1; x += 3) {
-    vline(c, x, setbackY, setbackY + 3, C.scaffoldDk);
-    hline(c, setbackY + 3, x, x + 2, C.scaffold);
-  }
-
-  // Structural edges
-  rect(c, bx, setbackY, 2, by + bh - setbackY, C.wallLight);
-  rect(c, bx + bw - 2, setbackY, 2, by + bh - setbackY, C.wallEdge);
-  rect(c, bx + inset, by, 2, setbackY - by, C.wallLight);
-  rect(c, bx + bw - inset - 2, by, 2, setbackY - by, C.wallEdge);
-  // Center column
-  rect(c, bx + bw / 2 - 1, by, 2, bh, C.wallAccent);
-
-  // Floor bands
-  for (let i = 1; i <= 14; i++) {
-    const fy = by + 2 + i * 5;
-    if (fy >= by + bh - 6) break;
-    const xl = fy < setbackY ? bx + inset : bx;
-    const xr = fy < setbackY ? bx + bw - inset : bx + bw;
-    hline(c, fy, xl, xr - 1, C.wallAccent);
-  }
-
-  // Windows — upper penthouse
-  for (let row = 0; row < 3; row++) {
-    const wy = by + 2 + row * 5 + (row > 0 ? 2 : 0);
-    winRow(c, wy, bx + inset + 3, bx + bw - inset - 2, 3, 3, 2, row * 31 + 5, 0.85);
-  }
-  // Windows — lower floors
-  for (let row = 0; row < 10; row++) {
-    const wy = setbackY + 2 + row * 5 + (row > 0 ? 1 : 0);
-    if (wy + 3 >= by + bh - 10) break;
-    winRow(c, wy, bx + 3, bx + bw - 2, 3, 3, 2, row * 31 + 100, 0.78);
-  }
-
-  // ── Neon bands — rainbow progression ──
-  const t3Neon = [C.nCyan, C.nPink, C.nPurple, C.nGold, C.nCyan, C.nPink, C.nOrange, C.nGreen];
-  for (let i = 0; i < 8; i++) {
-    const ny = by + 6 + i * 9;
-    if (ny >= by + bh - 6) break;
-    const xl = ny < setbackY ? bx + inset + 3 : bx + 3;
-    const xr = ny < setbackY ? bx + bw - inset - 3 : bx + bw - 3;
-    neonH(c, ny, xl, xr, t3Neon[i]);
-  }
-
-  // Vertical neon strips
-  neonV(c, bx, setbackY, by + bh, C.nCyan, 2, 0.22);
-  neonV(c, bx + bw - 1, setbackY, by + bh, C.nPink, 2, 0.22);
-  neonV(c, bx + inset, by, setbackY, C.nCyan, 2, 0.18);
-  neonV(c, bx + bw - inset - 1, by, setbackY, C.nPink, 2, 0.18);
-
-  // ── Holographic data streams running up both sides ──
-  for (let dx = 0; dx < 3; dx++) {
-    holoStream(c, bx - 2 + dx, by + 10, by + bh, C.nCyan, 0.3);
-    holoStream(c, bx + bw + dx, by + 14, by + bh, C.nPink, 0.3);
-  }
-
-  // ── LARGE holographic billboard floating on left side ──
-  holoPanel(c, bx - 14, by + 20, 12, 24, C.nCyan, 0.15, (c, x, y) => {
-    // Stock chart line
-    c.save(); c.globalAlpha = 0.7;
-    const pts = [6, 4, 7, 3, 5, 2, 4, 6, 3, 5];
-    for (let i = 0; i < pts.length - 1; i++) {
-      px(c, x + 1 + i, y + 4 + pts[i], C.nGreen);
-    }
-    // Arrow up
-    px(c, x + 9, y + 4, C.nGreen);
-    px(c, x + 8, y + 5, C.nGreenDim);
-    px(c, x + 10, y + 5, C.nGreenDim);
-    // Price text lines
-    hline(c, y + 13, x + 2, x + 9, C.nCyanDim);
-    hline(c, y + 15, x + 2, x + 7, C.nCyanDim);
-    hline(c, y + 17, x + 2, x + 8, C.nGoldDim);
-    // Bar chart
-    for (let i = 0; i < 4; i++) {
-      const h = 2 + (i * 3 + 5) % 5;
-      rect(c, x + 2 + i * 2, y + 22 - h, 1, h, [C.nCyan, C.nPink, C.nGold, C.nGreen][i]);
-    }
-    c.restore();
   });
   // Projector beams
   c.save(); c.globalAlpha = 0.06;
-  for (let i = 0; i < 4; i++) hline(c, by + 24 + i * 5, bx - 2, bx + inset, C.nCyan);
+  for (let i = 0; i < 3; i++) hline(c, ry + 8 + i * 6, rx + rw + SD - 1, rx + rw + SD + 1, C.nPink);
   c.restore();
 
-  // ── Holographic floor indicator panel (right side) ──
-  holoPanel(c, bx + bw + 2, by + 36, 8, 30, C.nPink, 0.12, (c, x, y) => {
-    // Floor numbers
-    c.save(); c.globalAlpha = 0.6;
-    for (let i = 0; i < 8; i++) {
-      const col = i === 0 ? C.nGold : C.nPinkDim;
-      px(c, x + 2, y + 3 + i * 3, col);
-      px(c, x + 3, y + 3 + i * 3, col);
-      hline(c, y + 3 + i * 3, x + 5, x + 6, C.nPinkDim);
-    }
+  // ── Holographic company sign above left tower ──
+  holoPanel(c, lx + 4, ly - 14, 24, 10, C.nCyan, 0.1, (c, x, y) => {
+    c.save(); c.globalAlpha = 0.7;
+    px(c, x + 5, y + 2, C.nCyanGlow); px(c, x + 4, y + 3, C.nCyan);
+    px(c, x + 6, y + 3, C.nCyan); px(c, x + 5, y + 4, C.nCyanGlow);
+    hline(c, y + 3, x + 10, x + 20, C.nCyanDim);
+    hline(c, y + 5, x + 10, x + 18, C.nCyanDim);
+    hline(c, y + 7, x + 10, x + 16, C.nCyanDim);
     c.restore();
   });
 
-  // ── Roof structure ──
-  const topX = bx + inset;
-  const topW = bw - inset * 2;
-  neonH(c, by - 1, topX, topX + topW, C.nCyan, 2, 0.35);
-  neonH(c, by - 2, topX + 4, topX + topW - 4, C.nPink, 2, 0.25);
-  neonH(c, by - 3, topX + 8, topX + topW - 8, C.nGold);
+  // ── Rooftop equipment on left tower ──
+  rect(c, lx + 3, ly - 5, 7, 3, C.scaffoldDk);
+  rect(c, lx + 3, ly - 5, 7, 1, C.scaffold);
+  vline(c, lx + 20, ly - 2, ly - 10, C.scaffold);
+  px(c, lx + 20, ly - 10, C.nCyan);
+  glow(c, lx + 20, ly - 10, 1, 1, C.nCyan, 2, 0.35);
 
-  // Helipad
-  rect(c, topX + 4, by - 3, topW - 8, 3, C.concreteDk);
-  px(c, topX + topW / 2 - 3, by - 2, C.nWhite);
-  px(c, topX + topW / 2 + 2, by - 2, C.nWhite);
-  hline(c, by - 1, topX + topW / 2 - 3, topX + topW / 2 + 2, C.nWhite);
-  vline(c, topX + topW / 2 - 3, by - 3, by - 1, C.nWhite);
-  vline(c, topX + topW / 2 + 2, by - 3, by - 1, C.nWhite);
-  for (const [lx, ly] of [[topX + 5, by - 3], [topX + topW - 6, by - 3], [topX + 5, by], [topX + topW - 6, by]] as [number, number][]) {
-    px(c, lx, ly, C.nRed);
-    glow(c, lx, ly, 1, 1, C.nRed, 1, 0.25);
-  }
+  // Rooftop equipment on right wing
+  rect(c, rx + 6, ry - 5, 6, 3, C.scaffoldDk);
+  rect(c, rx + 6, ry - 5, 6, 1, C.scaffold);
+  px(c, rx + 8, ry - 5, C.scaffoldLt);
 
-  // Spire with holographic rings
-  const spireX = bx + bw / 2;
-  vline(c, spireX, by - 3, by - 22, C.scaffold);
-  vline(c, spireX + 1, by - 3, by - 20, C.scaffoldDk);
-  hline(c, by - 12, spireX - 2, spireX + 3, C.scaffoldDk);
-  hline(c, by - 16, spireX - 1, spireX + 2, C.scaffoldDk);
-  // Beacon
-  glow(c, spireX - 1, by - 24, 3, 2, C.nCyan, 4, 0.4);
-  px(c, spireX, by - 23, C.nCyanBright);
-  px(c, spireX + 1, by - 23, C.nCyanGlow);
-  px(c, spireX, by - 24, C.nCyan);
-  // ── Holographic rings around spire ──
-  holoRing(c, spireX, by - 14, 6, 2, C.nCyan, 0.35);
-  holoRing(c, spireX, by - 18, 4, 1, C.nPink, 0.3);
+  // ── Shopfronts at base ──
+  rect(c, lx + 3, ly + lh - 7, 6, 5, C.wDark);
+  c.save(); c.globalAlpha = 0.2; rect(c, lx + 3, ly + lh - 6, 6, 3, C.nGreen); c.restore();
+  neonH(c, ly + lh - 7, lx + 3, lx + 9, C.nGreen);
+  rect(c, rx + 3, ry + rh - 7, 10, 5, C.wDark);
+  c.save(); c.globalAlpha = 0.2; rect(c, rx + 3, ry + rh - 6, 10, 3, C.nOrange); c.restore();
+  neonH(c, ry + rh - 7, rx + 3, rx + 13, C.nOrange);
 
-  // Door / grand lobby
-  const ddx = bx + 18, ddy = by + bh - 12;
-  rect(c, ddx, ddy, 20, 12, C.wDark);
-  c.save(); c.globalAlpha = 0.25; rect(c, ddx + 2, ddy + 2, 16, 8, C.nGold); c.restore();
-  neonH(c, ddy, ddx, ddx + 20, C.nGold, 2, 0.3);
-  neonV(c, ddx, ddy, ddy + 12, C.nGoldDim, 1, 0.2);
-  neonV(c, ddx + 19, ddy, ddy + 12, C.nGoldDim, 1, 0.2);
-  glow(c, ddx, ddy, 20, 12, C.nGold, 2, 0.1);
-  // Revolving door lights
-  for (let i = 0; i < 3; i++) px(c, ddx + 4 + i * 6, ddy + 1, C.nGold);
-
-  // Ground neon reflections
+  // ── Ground reflections ──
   c.save(); c.globalAlpha = 0.05;
-  rect(c, bx - 14, by + 42, 12, 2, C.nCyan);
-  rect(c, bx + bw + 2, by + 64, 8, 2, C.nPink);
+  rect(c, lx, ly + lh, lw, 4, C.nCyan);
+  rect(c, rx + rw + SD + 1, ry + 22, 10, 2, C.nPink);
   c.restore();
 }
 
-// ─── TIER 4: Megastructure with Full Holographic Crown ───────────────
+// ─── TIER 3: Stepped Skyscraper with 3 Tiers of Setback ─────────────
+function drawTier3(c: Ctx) {
+  drawGround(c);
+  const SD = 5; // side face depth
+
+  // Building has 3 tiers stepping back: base → mid → top penthouse
+  // Each tier is narrower and set back, creating a stepped pyramid silhouette
+
+  // ── BASE SECTION (widest) ──
+  const bx = 4, by3 = 48, bw = 52, bh = 40;
+  for (let i = 0; i < bh; i++) {
+    const v = 10 + Math.floor((i / bh) * 12);
+    rect(c, bx, by3 + i, bw, 1, `rgb(${v},${v},${v + 30})`);
+  }
+  sideface(c, bx + bw, by3, SD, bh, '#060618');
+  rect(c, bx, by3, 2, bh, C.wallLight);
+  // Floor bands
+  for (let i = 1; i <= 5; i++) hline(c, by3 + i * 7, bx, bx + bw + SD - 1, C.wallAccent);
+  // Windows
+  for (let row = 0; row < 5; row++) {
+    const wy = by3 + 3 + row * 7;
+    if (wy + 3 >= by3 + bh - 8) break;
+    winRow(c, wy, bx + 3, bx + bw - 1, 3, 3, 2, row * 31 + 100, 0.78);
+  }
+
+  // ── MID SECTION (narrower, set back) ──
+  const mi = 6; // inset from base
+  const mx = bx + mi, my = 22, mw = bw - mi * 2 + 6, mh = by3 - 22;
+  for (let i = 0; i < mh; i++) {
+    const v = 8 + Math.floor((i / mh) * 11);
+    rect(c, mx, my + i, mw, 1, `rgb(${v},${v},${v + 32})`);
+  }
+  sideface(c, mx + mw, my, SD, mh, '#050516');
+  rect(c, mx, my, 2, mh, C.wallLight);
+  // Floor bands
+  for (let i = 1; i <= 4; i++) hline(c, my + i * 6, mx, mx + mw + SD - 1, C.wallAccent);
+  // Windows
+  for (let row = 0; row < 4; row++) {
+    const wy = my + 2 + row * 6;
+    winRow(c, wy, mx + 3, mx + mw - 1, 3, 3, 2, row * 31 + 50, 0.82);
+  }
+
+  // ── Ledge / terrace where mid meets base (visible top face) ──
+  topface(c, bx, by3 - 2, mi + SD, 3, C.roofLight);
+  topface(c, bx + bw - mi, by3 - 2, mi + SD, 3, C.roofLight);
+  // Terrace railings
+  for (let tx = bx + 1; tx < bx + mi - 1; tx += 3) {
+    vline(c, tx, by3 - 4, by3 - 2, C.scaffoldDk);
+  }
+  for (let tx = bx + bw - mi + 1; tx < bx + bw - 1; tx += 3) {
+    vline(c, tx, by3 - 4, by3 - 2, C.scaffoldDk);
+  }
+  hline(c, by3 - 4, bx, bx + mi - 1, C.scaffold);
+  hline(c, by3 - 4, bx + bw - mi, bx + bw - 1, C.scaffold);
+  // Terrace plants
+  px(c, bx + 2, by3 - 5, C.treeLeaf); px(c, bx + 3, by3 - 5, C.treeGlow);
+  px(c, bx + bw - mi + 2, by3 - 5, C.treeLeaf);
+
+  // ── TOP PENTHOUSE (narrowest) ──
+  const ti = 5;
+  const tx_ = mx + ti, ty = 8, tw = mw - ti * 2 + 4, th = my - 8;
+  for (let i = 0; i < th; i++) {
+    const v = 7 + Math.floor((i / th) * 10);
+    rect(c, tx_, ty + i, tw, 1, `rgb(${v},${v},${v + 34})`);
+  }
+  sideface(c, tx_ + tw, ty, SD - 1, th, '#040514');
+  rect(c, tx_, ty, 2, th, C.wallHighlight);
+  // Penthouse windows (bigger, panoramic)
+  for (let row = 0; row < 2; row++) {
+    const wy = ty + 3 + row * 6;
+    winRow(c, wy, tx_ + 3, tx_ + tw - 1, 4, 3, 2, row * 11, 0.9);
+  }
+
+  // ── Ledge / terrace where top meets mid ──
+  topface(c, mx, my - 2, ti + SD, 3, C.roofLight);
+  topface(c, mx + mw - ti, my - 2, ti + SD, 3, C.roofLight);
+  // Mini garden on mid terrace
+  for (const gx of [mx + 2, mx + mw - ti + 2]) {
+    rect(c, gx, my - 4, 2, 2, C.treeTrunk);
+    rect(c, gx - 1, my - 6, 4, 2, C.treeLeaf);
+    px(c, gx, my - 7, C.treeGlow);
+  }
+
+  // ── Protruding balconies on mid section ──
+  for (const brow of [1, 3]) {
+    balcony(c, mx - 5, my + 3 + brow * 6, 7, 3);
+  }
+
+  // ── Protruding bay window on base (right side) ──
+  const bayX = bx + bw - 2, bayY = by3 + 10, bayW = SD + 4, bayH = 16;
+  rect(c, bayX, bayY, bayW, bayH, C.wallMid);
+  sideface(c, bayX + bayW, bayY, 2, bayH, '#040512');
+  topface(c, bayX, bayY - 1, bayW + 2, 1, C.roofMid);
+  rect(c, bayX, bayY + bayH, bayW + 2, 1, C.wallEdge);
+  // Bay windows
+  drawWin(c, bayX + 1, bayY + 3, 3, 3, 7);
+  drawWin(c, bayX + 1, bayY + 9, 3, 3, 2);
+
+  // ── Roof structure on penthouse ──
+  topface(c, tx_, ty - 2, tw + SD - 1, 2, C.roofLight);
+  neonH(c, ty - 1, tx_, tx_ + tw, C.nCyan, 2, 0.35);
+  neonH(c, ty - 2, tx_ + 4, tx_ + tw - 4, C.nPink, 2, 0.25);
+
+  // ── Neon bands (follow the stepped shape) ──
+  neonV(c, bx, by3, by3 + bh, C.nCyan, 2, 0.22);
+  neonV(c, mx, my, by3, C.nCyan, 2, 0.2);
+  neonV(c, tx_, ty, my, C.nCyan, 2, 0.18);
+  neonV(c, bx + bw + SD - 1, by3, by3 + bh, C.nPink, 2, 0.2);
+  neonV(c, mx + mw + SD - 1, my, by3, C.nPink, 2, 0.18);
+  neonV(c, tx_ + tw + SD - 2, ty, my, C.nPinkDim, 1, 0.15);
+
+  const t3Neon = [C.nCyan, C.nPink, C.nPurple, C.nGold, C.nOrange, C.nGreen, C.nCyan, C.nPink];
+  for (let i = 0; i < 8; i++) {
+    const ny = ty + 5 + i * 9;
+    if (ny >= by3 + bh - 4) break;
+    const xl = ny < my ? tx_ + 3 : ny < by3 ? mx + 3 : bx + 3;
+    const xr = ny < my ? tx_ + tw - 1 : ny < by3 ? mx + mw - 1 : bx + bw - 1;
+    neonH(c, ny, xl, xr, t3Neon[i]);
+  }
+
+  // ── Holographic data streams ──
+  for (let dx = 0; dx < 3; dx++) {
+    holoStream(c, bx - 2 + dx, by3, by3 + bh, C.nCyan, 0.3);
+    holoStream(c, bx + bw + SD + dx, by3, by3 + bh, C.nPink, 0.3);
+  }
+
+  // ── Holographic billboard (left) ──
+  holoPanel(c, bx - 14, my + 4, 12, 22, C.nCyan, 0.15, (c, x, y) => {
+    c.save(); c.globalAlpha = 0.7;
+    const pts = [6, 4, 7, 3, 5, 2, 4, 6, 3, 5];
+    for (let i = 0; i < pts.length - 1; i++) px(c, x + 1 + i, y + 3 + pts[i], C.nGreen);
+    px(c, x + 9, y + 3, C.nGreen);
+    hline(c, y + 12, x + 2, x + 9, C.nCyanDim);
+    hline(c, y + 14, x + 2, x + 7, C.nCyanDim);
+    for (let i = 0; i < 4; i++) {
+      const h = 2 + (i * 3 + 5) % 5;
+      rect(c, x + 2 + i * 2, y + 20 - h, 1, h, [C.nCyan, C.nPink, C.nGold, C.nGreen][i]);
+    }
+    c.restore();
+  });
+
+  // ── Spire with holographic rings ──
+  const spX = tx_ + tw / 2;
+  vline(c, spX, ty - 2, ty - 20, C.scaffold);
+  vline(c, spX + 1, ty - 2, ty - 18, C.scaffoldDk);
+  hline(c, ty - 12, spX - 2, spX + 3, C.scaffoldDk);
+  glow(c, spX - 1, ty - 22, 3, 2, C.nCyan, 4, 0.4);
+  px(c, spX, ty - 21, C.nCyanBright);
+  px(c, spX, ty - 22, C.nCyan);
+  holoRing(c, spX, ty - 14, 6, 2, C.nCyan, 0.35);
+  holoRing(c, spX, ty - 18, 4, 1, C.nPink, 0.3);
+
+  // ── Entrance (recessed into base) ──
+  const edx = bx + 16, edy = by3 + bh - 12;
+  rect(c, edx, edy, 18, 12, '#050510');
+  rect(c, edx, edy, 18, 1, C.wallAccent);
+  rect(c, edx, edy, 1, 12, C.wallMid);
+  rect(c, edx + 17, edy, 1, 12, C.wallEdge);
+  c.save(); c.globalAlpha = 0.25; rect(c, edx + 2, edy + 3, 14, 7, C.nGold); c.restore();
+  neonH(c, edy, edx, edx + 18, C.nGold, 2, 0.3);
+  neonV(c, edx, edy, edy + 12, C.nGoldDim);
+  neonV(c, edx + 17, edy, edy + 12, C.nGoldDim);
+  glow(c, edx, edy, 18, 12, C.nGold, 2, 0.1);
+}
+
+// ─── TIER 4: Multi-Wing Megastructure with Skybridge ─────────────────
 function drawTier4(c: Ctx) {
   drawGround(c);
+  const SD = 5;
 
-  const bx = 2, by = 6, bw = 60, bh = 82;
+  // Mega building: two tall towers connected by a skybridge,
+  // with a wide podium base and a penthouse crown on the left tower
 
-  // ── Body — dramatic deep gradient with pulsing blue shift ──
-  for (let i = 0; i < bh; i++) {
-    const v = 6 + Math.floor((i / bh) * 14);
-    const b = v + 36 + Math.floor(Math.sin(i * 0.12) * 5);
-    rect(c, bx, by + i, bw, 1, `rgb(${v},${v},${b})`);
+  // ── PODIUM BASE (wide, 3 floors) ──
+  const px_ = 2, py = 68, pw = 58, ph = 20;
+  for (let i = 0; i < ph; i++) {
+    const v = 10 + Math.floor((i / ph) * 10);
+    rect(c, px_, py + i, pw, 1, `rgb(${v},${v},${v + 28})`);
+  }
+  sideface(c, px_ + pw, py, SD, ph, '#050514');
+  rect(c, px_, py, 2, ph, C.wallLight);
+  topface(c, px_, py - 2, pw + SD, 2, C.roofMid);
+  // Podium windows
+  for (let row = 0; row < 2; row++) {
+    winRow(c, py + 4 + row * 8, px_ + 4, px_ + pw - 1, 3, 3, 2, row * 37, 0.8);
+  }
+  // Podium shopfronts
+  for (const [sx, sw, col] of [[px_ + 4, 12, C.nGreen], [px_ + 24, 10, C.nOrange], [px_ + 42, 12, C.nPink]] as [number, number, string][]) {
+    rect(c, sx, py + ph - 6, sw, 4, C.wDark);
+    c.save(); c.globalAlpha = 0.2; rect(c, sx + 1, py + ph - 5, sw - 2, 2, col); c.restore();
+    neonH(c, py + ph - 6, sx, sx + sw, col);
   }
 
-  // Structural columns — 4 sections
-  rect(c, bx, by, 3, bh, C.wallLight);
-  rect(c, bx + bw - 3, by, 3, bh, '#050510');
-  rect(c, bx + Math.floor(bw / 3), by, 2, bh, C.wallAccent);
-  rect(c, bx + Math.floor(bw * 2 / 3), by, 2, bh, C.wallAccent);
-  // Extra mid-columns for mega-scale feel
-  rect(c, bx + Math.floor(bw / 6), by, 1, bh, C.wallMid2);
-  rect(c, bx + Math.floor(bw * 5 / 6), by, 1, bh, C.wallMid2);
+  // ── LEFT TOWER ──
+  const lx = 3, ly = 8, lw = 26, lh = py - 8;
+  for (let i = 0; i < lh; i++) {
+    const v = 6 + Math.floor((i / lh) * 14);
+    const b = v + 36 + Math.floor(Math.sin(i * 0.12) * 4);
+    rect(c, lx, ly + i, lw, 1, `rgb(${v},${v},${b})`);
+  }
+  sideface(c, lx + lw, ly, SD, lh, '#040514');
+  rect(c, lx, ly, 2, lh, C.wallHighlight);
+  topface(c, lx, ly - 2, lw + SD, 2, C.roofLight);
+  // Floor bands
+  for (let i = 1; i <= 10; i++) {
+    const fy = ly + i * 5 + 2;
+    if (fy < ly + lh) hline(c, fy, lx, lx + lw + SD - 1, C.wallAccent);
+  }
+  // Windows
+  for (let row = 0; row < 11; row++) {
+    const wy = ly + 2 + row * 5;
+    if (wy + 3 >= ly + lh - 4) break;
+    winRow(c, wy, lx + 3, lx + lw - 1, 3, 3, 2, row * 41 + 13, 0.85);
+  }
 
-  // Floor bands + rainbow neon on every floor
+  // ── RIGHT TOWER ──
+  const rrx = 34, rry = 16, rrw = 24, rrh = py - 16;
+  for (let i = 0; i < rrh; i++) {
+    const v = 7 + Math.floor((i / rrh) * 13);
+    const b = v + 34 + Math.floor(Math.sin(i * 0.15) * 3);
+    rect(c, rrx, rry + i, rrw, 1, `rgb(${v},${v},${b})`);
+  }
+  sideface(c, rrx + rrw, rry, SD, rrh, '#040512');
+  rect(c, rrx, rry, 2, rrh, C.wallLight);
+  topface(c, rrx, rry - 2, rrw + SD, 2, C.roofMid);
+  // Floor bands
+  for (let i = 1; i <= 9; i++) {
+    const fy = rry + i * 5 + 2;
+    if (fy < rry + rrh) hline(c, fy, rrx, rrx + rrw + SD - 1, C.wallAccent);
+  }
+  // Windows
+  for (let row = 0; row < 10; row++) {
+    const wy = rry + 2 + row * 5;
+    if (wy + 3 >= rry + rrh - 4) break;
+    winRow(c, wy, rrx + 3, rrx + rrw - 1, 3, 3, 2, row * 37 + 7, 0.83);
+  }
+
+  // ── Ledge between towers and podium ──
+  topface(c, px_, py - 3, px_ + SD, 3, C.roofLight); // left overhang
+  topface(c, px_ + pw - 8, py - 3, 12, 3, C.roofLight); // right overhang
+
+  // ── SKYBRIDGE connecting the two towers ──
+  const sbY = 36, sbH = 6;
+  rect(c, lx + lw + SD, sbY, rrx - lx - lw - SD, sbH, C.wallMid);
+  sideface(c, rrx, sbY, 0, sbH, C.wallEdge); // just a line
+  rect(c, lx + lw + SD, sbY, rrx - lx - lw - SD, 1, C.wallLight); // top highlight
+  rect(c, lx + lw + SD, sbY + sbH - 1, rrx - lx - lw - SD, 1, C.wallEdge); // bottom shadow
+  // Skybridge windows
+  for (let wx = lx + lw + SD + 1; wx < rrx - 2; wx += 4) {
+    drawWin(c, wx, sbY + 2, 2, 2, wx);
+  }
+  // Skybridge neon
+  neonH(c, sbY, lx + lw + SD, rrx, C.nGold);
+  neonH(c, sbY + sbH - 1, lx + lw + SD, rrx, C.nGoldDim);
+
+  // ── Protruding balconies on left tower ──
+  for (const brow of [2, 5, 8]) {
+    const aby = ly + 3 + brow * 5;
+    if (aby < ly + lh - 8) balcony(c, lx - 5, aby, 7, 3);
+  }
+
+  // ── Bay windows protruding from right tower ──
+  for (const brow of [1, 4, 7]) {
+    const aby = rry + 3 + brow * 5;
+    if (aby < rry + rrh - 8) {
+      const bxx = rrx + rrw + SD;
+      rect(c, bxx, aby, 4, 4, C.wallMid);
+      sideface(c, bxx + 4, aby, 2, 4, '#040512');
+      topface(c, bxx, aby - 1, 6, 1, C.roofMid);
+      drawWin(c, bxx + 1, aby + 1, 2, 2, brow * 3);
+    }
+  }
+
+  // ── Rainbow neon bands ──
   const megaNeon = [C.nCyan, C.nPink, C.nPurple, C.nGold, C.nOrange, C.nGreen, C.nBlue, C.nCyan, C.nPink, C.nPurple, C.nGold, C.nOrange, C.nGreen];
-  for (let i = 0; i < 14; i++) {
-    const fy = by + 4 + i * 5;
-    if (fy >= by + bh - 10) break;
-    hline(c, fy, bx, bx + bw - 1, C.wallAccent);
-    neonH(c, fy + 1, bx + 4, bx + bw - 4, megaNeon[i]);
+  for (let i = 0; i < 13; i++) {
+    const ny = ly + 4 + i * 5 + 3;
+    if (ny >= py + ph - 4) break;
+    // Neon goes across whichever sections exist at this height
+    if (ny >= py) {
+      neonH(c, ny, px_ + 3, px_ + pw - 1, megaNeon[i]);
+    } else if (ny >= rry && ny < ly + lh) {
+      neonH(c, ny, lx + 3, lx + lw - 1, megaNeon[i]);
+      neonH(c, ny, rrx + 3, rrx + rrw - 1, megaNeon[i]);
+    } else if (ny < rry && ny < ly + lh) {
+      neonH(c, ny, lx + 3, lx + lw - 1, megaNeon[i]);
+    }
   }
 
-  // Dense window grid — 12 floors × 10+ cols
-  for (let row = 0; row < 13; row++) {
-    const wy = by + 2 + row * 5;
-    if (wy + 3 >= by + bh - 10) break;
-    winRow(c, wy, bx + 4, bx + bw - 3, 3, 3, 2, row * 41 + 13, 0.87);
-  }
+  // Vertical neon on towers
+  neonV(c, lx, ly, py, C.nCyan, 3, 0.28);
+  neonV(c, lx + lw + SD - 1, ly, py, C.nPinkDim, 1, 0.15);
+  neonV(c, rrx, rry, py, C.nCyanDim, 2, 0.2);
+  neonV(c, rrx + rrw + SD - 1, rry, py, C.nPink, 3, 0.25);
+  neonV(c, px_ + pw + SD - 1, py, py + ph, C.nPink, 2, 0.2);
 
-  // ── Neon edge treatment — triple-layer on each side ──
-  neonV(c, bx, by, by + bh, C.nCyan, 3, 0.3);
-  neonV(c, bx + 1, by, by + bh, C.nCyanDim, 2, 0.12);
-  neonV(c, bx + 2, by, by + bh, C.nCyanDim, 1, 0.05);
-  neonV(c, bx + bw - 1, by, by + bh, C.nPink, 3, 0.3);
-  neonV(c, bx + bw - 2, by, by + bh, C.nPinkDim, 2, 0.12);
-  neonV(c, bx + bw - 3, by, by + bh, C.nPinkDim, 1, 0.05);
-  // Column neons
-  neonV(c, bx + Math.floor(bw / 3), by, by + bh, C.nPurpleDim, 1, 0.15);
-  neonV(c, bx + Math.floor(bw * 2 / 3), by, by + bh, C.nGoldDim, 1, 0.15);
-
-  // ── Holographic data streams — cascading down both sides ──
+  // ── Holographic data streams ──
   for (let dx = 0; dx < 4; dx++) {
-    holoStream(c, bx - 3 + dx, by + 4, by + bh, C.nCyan, 0.35);
-    holoStream(c, bx + bw + 1 + dx, by + 8, by + bh, C.nPink, 0.35);
+    holoStream(c, lx - 3 + dx, ly + 4, py + ph, C.nCyan, 0.35);
+    holoStream(c, rrx + rrw + SD + 2 + dx, rry + 4, py + ph, C.nPink, 0.35);
   }
 
-  // ── MASSIVE holographic display — left side ──
-  holoPanel(c, bx - 16, by + 14, 14, 30, C.nCyan, 0.16, (c, x, y) => {
+  // ── Holographic display — left ──
+  holoPanel(c, lx - 16, ly + 10, 13, 28, C.nCyan, 0.16, (c, x, y) => {
     c.save(); c.globalAlpha = 0.75;
-    // Rotating globe / world icon
-    holoRing(c, x + 7, y + 7, 4, 3, C.nCyanGlow, 0.6);
-    holoRing(c, x + 7, y + 7, 3, 4, C.nCyanDim, 0.4);
-    px(c, x + 7, y + 7, C.nCyanBright);
-    // Price ticker
-    hline(c, y + 13, x + 2, x + 11, C.nGreenDim);
-    // Chart with bars
+    holoRing(c, x + 7, y + 6, 4, 3, C.nCyanGlow, 0.6);
+    px(c, x + 7, y + 6, C.nCyanBright);
+    hline(c, y + 12, x + 2, x + 10, C.nGreenDim);
     for (let i = 0; i < 5; i++) {
       const h = 2 + ((i * 7 + 3) % 6);
-      rect(c, x + 2 + i * 2, y + 22 - h, 1, h, [C.nCyan, C.nPink, C.nGold, C.nGreen, C.nPurple][i]);
+      rect(c, x + 2 + i * 2, y + 20 - h, 1, h, [C.nCyan, C.nPink, C.nGold, C.nGreen, C.nPurple][i]);
     }
-    // Data lines
-    for (let row = 0; row < 3; row++) {
-      hline(c, y + 24 + row * 2, x + 2, x + 8 + (row * 2), C.nCyanDim);
-    }
+    for (let row = 0; row < 3; row++) hline(c, y + 22 + row * 2, x + 2, x + 8 + row, C.nCyanDim);
     c.restore();
   });
 
-  // ── MASSIVE holographic display — right side ──
-  holoPanel(c, bx + bw + 2, by + 20, 14, 28, C.nPink, 0.16, (c, x, y) => {
+  // ── Holographic display — right ──
+  holoPanel(c, rrx + rrw + SD + 3, rry + 8, 12, 24, C.nPink, 0.16, (c, x, y) => {
     c.save(); c.globalAlpha = 0.75;
-    // Abstract portrait / avatar
-    rect(c, x + 4, y + 3, 6, 6, C.nPinkDim);
-    px(c, x + 5, y + 4, C.nPinkGlow);
-    px(c, x + 8, y + 4, C.nPinkGlow);
-    hline(c, y + 7, x + 5, x + 8, C.nPink);
-    // Social metrics
+    rect(c, x + 3, y + 2, 6, 6, C.nPinkDim);
+    px(c, x + 4, y + 3, C.nPinkGlow); px(c, x + 7, y + 3, C.nPinkGlow);
+    hline(c, y + 6, x + 4, x + 7, C.nPink);
     for (let i = 0; i < 4; i++) {
-      const w = 4 + ((i * 5 + 2) % 5);
-      rect(c, x + 2, y + 12 + i * 3, w, 1, [C.nPink, C.nGold, C.nGreen, C.nBlue][i]);
-      px(c, x + 2 + w + 1, y + 12 + i * 3, C.nWhite);
+      const w = 3 + ((i * 5 + 2) % 5);
+      rect(c, x + 2, y + 11 + i * 3, w, 1, [C.nPink, C.nGold, C.nGreen, C.nBlue][i]);
     }
-    // Heart icon
-    px(c, x + 3, y + 25, C.nPink);
-    px(c, x + 5, y + 25, C.nPink);
-    px(c, x + 4, y + 26, C.nPinkGlow);
     c.restore();
   });
 
-  // Projector beams from building to panels
-  c.save(); c.globalAlpha = 0.05;
-  for (let i = 0; i < 6; i++) {
-    hline(c, by + 18 + i * 4, bx - 2, bx + 3, C.nCyan);
-    hline(c, by + 24 + i * 4, bx + bw - 2, bx + bw + 2, C.nPink);
-  }
-  c.restore();
-
-  // ── Holographic ticker strip across building ──
-  const tickerY = by + Math.floor(bh * 0.42);
-  c.save(); c.globalAlpha = 0.55;
-  rect(c, bx + 3, tickerY, bw - 6, 3, '#06061a');
-  c.restore();
-  for (let x = bx + 4; x < bx + bw - 4; x++) {
+  // ── Holographic ticker ──
+  const tickerY = 40;
+  for (let x = lx + 3; x < lx + lw - 1; x++) {
     const col = [C.nCyan, C.nPink, C.nGold, C.nGreen, C.nPurple, C.nOrange, C.nBlue][(x * 3 + 5) % 7];
-    c.save(); c.globalAlpha = 0.5 + ((x * 7) % 50) / 100;
+    c.save(); c.globalAlpha = 0.45 + ((x * 7) % 50) / 100;
     px(c, x, tickerY, col);
-    px(c, x, tickerY + 2, col);
+    px(c, x, tickerY + 1, col);
     c.restore();
   }
-  // Ticker glow
-  glow(c, bx + 3, tickerY, bw - 6, 3, C.nCyan, 2, 0.08);
+  glow(c, lx + 3, tickerY, lw - 4, 2, C.nCyan, 1, 0.06);
 
-  // ── Second ticker strip — lower ──
-  const ticker2Y = by + Math.floor(bh * 0.72);
-  c.save(); c.globalAlpha = 0.45;
-  rect(c, bx + 3, ticker2Y, bw - 6, 2, '#06061a');
-  c.restore();
-  for (let x = bx + 4; x < bx + bw - 4; x++) {
-    const col = [C.nPink, C.nGold, C.nCyan, C.nPurple, C.nGreen][(x * 5 + 2) % 5];
-    c.save(); c.globalAlpha = 0.4 + ((x * 11) % 40) / 100;
-    px(c, x, ticker2Y, col);
-    px(c, x, ticker2Y + 1, col);
-    c.restore();
-  }
-  glow(c, bx + 3, ticker2Y, bw - 6, 2, C.nPink, 1, 0.06);
-
-  // ── Mega roof — quad neon ──
-  glow(c, bx, by - 1, bw, 5, C.nCyan, 5, 0.12);
-  neonH(c, by - 1, bx, bx + bw, C.nCyan, 3, 0.35);
-  neonH(c, by - 2, bx + 5, bx + bw - 5, C.nPink, 2, 0.25);
-  neonH(c, by - 3, bx + 10, bx + bw - 10, C.nGold, 2, 0.2);
-  neonH(c, by - 4, bx + 15, bx + bw - 15, C.nPurple);
-
-  // ── Twin spires with holographic beacons ──
-  const lSpire = bx + 14;
-  const rSpire = bx + bw - 14;
-  vline(c, lSpire, by - 4, by - 22, C.scaffold);
-  vline(c, lSpire + 1, by - 4, by - 20, C.scaffoldDk);
-  glow(c, lSpire - 1, by - 24, 3, 2, C.nCyan, 4, 0.45);
-  px(c, lSpire, by - 23, C.nCyanBright);
-  px(c, lSpire, by - 24, '#ffffff');
-  holoRing(c, lSpire, by - 18, 4, 1, C.nCyan, 0.4);
-
-  vline(c, rSpire, by - 4, by - 20, C.scaffold);
-  vline(c, rSpire + 1, by - 4, by - 18, C.scaffoldDk);
-  glow(c, rSpire - 1, by - 22, 3, 2, C.nPink, 4, 0.45);
-  px(c, rSpire, by - 21, C.nPinkGlow);
-  px(c, rSpire, by - 22, '#ffffff');
-  holoRing(c, rSpire, by - 16, 4, 1, C.nPink, 0.4);
-
-  // ── Central mega-beacon with holographic crown ──
-  const cSpire = bx + bw / 2;
-  vline(c, cSpire, by - 4, by - 30, C.scaffold);
-  vline(c, cSpire + 1, by - 4, by - 28, C.scaffoldDk);
-  // Crown beacon — bright white core
-  glow(c, cSpire - 2, by - 34, 5, 4, C.nGold, 6, 0.45);
-  glow(c, cSpire - 1, by - 33, 3, 2, '#ffffff', 3, 0.3);
-  px(c, cSpire, by - 32, '#ffffff');
-  px(c, cSpire + 1, by - 32, C.nGold);
-  px(c, cSpire, by - 33, C.nGold);
-  px(c, cSpire - 1, by - 31, C.nGoldDim);
-  px(c, cSpire + 2, by - 31, C.nGoldDim);
-  // Beacon rays extending outward
+  // ── Spires ──
+  // Left tower spire (taller)
+  const lSpX = lx + lw / 2;
+  vline(c, lSpX, ly - 2, ly - 28, C.scaffold);
+  vline(c, lSpX + 1, ly - 2, ly - 26, C.scaffoldDk);
+  glow(c, lSpX - 2, ly - 32, 5, 3, C.nGold, 6, 0.45);
+  glow(c, lSpX - 1, ly - 31, 3, 2, '#ffffff', 3, 0.3);
+  px(c, lSpX, ly - 30, '#ffffff');
+  px(c, lSpX + 1, ly - 30, C.nGold);
+  px(c, lSpX, ly - 31, C.nGold);
+  // Beacon rays
   for (let r = 1; r <= 5; r++) {
-    c.save(); c.globalAlpha = 0.2 / r;
-    px(c, cSpire - r, by - 32, C.nGold);
-    px(c, cSpire + 1 + r, by - 32, C.nGold);
-    px(c, cSpire, by - 32 - r, C.nGold);
-    px(c, cSpire + 1, by - 32 - r, C.nGoldDim);
-    // Diagonal rays
-    px(c, cSpire - r, by - 32 - Math.floor(r * 0.5), C.nGoldDim);
-    px(c, cSpire + 1 + r, by - 32 - Math.floor(r * 0.5), C.nGoldDim);
+    c.save(); c.globalAlpha = 0.18 / r;
+    px(c, lSpX - r, ly - 30, C.nGold);
+    px(c, lSpX + 1 + r, ly - 30, C.nGold);
+    px(c, lSpX, ly - 30 - r, C.nGold);
     c.restore();
   }
+  holoRing(c, lSpX, ly - 18, 7, 2, C.nGold, 0.4);
+  holoRing(c, lSpX, ly - 22, 5, 2, C.nCyan, 0.35);
+  holoRing(c, lSpX, ly - 26, 3, 1, C.nPink, 0.3);
 
-  // ── Holographic rings / halo around central spire ──
-  holoRing(c, cSpire, by - 20, 8, 3, C.nGold, 0.4);
-  holoRing(c, cSpire, by - 24, 6, 2, C.nCyan, 0.35);
-  holoRing(c, cSpire, by - 28, 4, 1, C.nPink, 0.3);
+  // Right tower spire (shorter)
+  const rSpX = rrx + rrw / 2;
+  vline(c, rSpX, rry - 2, rry - 18, C.scaffold);
+  vline(c, rSpX + 1, rry - 2, rry - 16, C.scaffoldDk);
+  glow(c, rSpX - 1, rry - 20, 3, 2, C.nPink, 4, 0.4);
+  px(c, rSpX, rry - 19, C.nPinkGlow);
+  px(c, rSpX, rry - 20, '#ffffff');
+  holoRing(c, rSpX, rry - 12, 5, 2, C.nPink, 0.35);
 
-  // ── Rooftop garden ──
-  for (const tx of [bx + 5, bx + 18, bx + 42, bx + 52]) {
-    rect(c, tx, by - 4, 3, 3, C.treeTrunk);
-    rect(c, tx - 1, by - 7, 5, 3, C.treeLeaf);
-    px(c, tx + 1, by - 8, C.treeGlow);
-  }
-
-  // ── Grand entrance with holographic arch ──
-  const edx = bx + 14, edy = by + bh - 16;
-  rect(c, edx, edy, 32, 16, C.wDark);
-  // Lobby interior — warm glow
-  c.save(); c.globalAlpha = 0.3;
-  rect(c, edx + 2, edy + 2, 28, 12, C.nGold);
-  c.restore();
-  c.save(); c.globalAlpha = 0.15;
-  rect(c, edx + 4, edy + 4, 24, 8, '#ffffff');
-  c.restore();
-  // Neon entrance frame
-  neonH(c, edy, edx, edx + 32, C.nGold, 3, 0.35);
-  neonH(c, edy + 15, edx, edx + 32, C.nGoldDim, 1, 0.15);
-  neonV(c, edx, edy, edy + 16, C.nGoldDim, 2, 0.25);
-  neonV(c, edx + 31, edy, edy + 16, C.nGoldDim, 2, 0.25);
-  glow(c, edx, edy, 32, 16, C.nGold, 4, 0.12);
-  // Holographic arch above entrance
+  // ── Grand entrance (recessed into podium base) ──
+  const edx = px_ + 18, edy = py + ph - 14;
+  rect(c, edx, edy, 22, 14, '#040410');
+  rect(c, edx, edy, 22, 1, C.wallAccent);
+  rect(c, edx, edy, 1, 14, C.wallMid);
+  rect(c, edx + 21, edy, 1, 14, C.wallEdge);
+  c.save(); c.globalAlpha = 0.3; rect(c, edx + 2, edy + 3, 18, 9, C.nGold); c.restore();
+  c.save(); c.globalAlpha = 0.12; rect(c, edx + 4, edy + 5, 14, 5, '#ffffff'); c.restore();
+  neonH(c, edy, edx, edx + 22, C.nGold, 3, 0.35);
+  neonV(c, edx, edy, edy + 14, C.nGoldDim, 2, 0.25);
+  neonV(c, edx + 21, edy, edy + 14, C.nGoldDim, 2, 0.25);
+  glow(c, edx, edy, 22, 14, C.nGold, 4, 0.12);
+  // Holographic arch
   c.save(); c.globalAlpha = 0.25;
-  for (let i = 0; i < 8; i++) {
-    const ax = edx + 4 + i * 3;
-    const ay = edy - 2 - Math.floor(Math.sin((i / 7) * Math.PI) * 4);
+  for (let i = 0; i < 6; i++) {
+    const ax = edx + 3 + i * 3;
+    const ay = edy - 2 - Math.floor(Math.sin((i / 5) * Math.PI) * 3);
     px(c, ax, ay, C.nGold);
-    px(c, ax + 1, ay, C.nGoldDim);
   }
   c.restore();
-  // Door indicators
-  for (let i = 0; i < 5; i++) px(c, edx + 5 + i * 5, edy + 1, C.nGold);
 
-  // Ground neon reflections — dramatic
-  c.save(); c.globalAlpha = 0.07;
-  rect(c, bx - 16, by + bh - 4, 14, 4, C.nCyan);
-  rect(c, bx + bw + 2, by + bh - 4, 14, 4, C.nPink);
-  rect(c, edx, by + bh, 32, 4, C.nGold);
+  // ── Ground reflections ──
+  c.save(); c.globalAlpha = 0.06;
+  rect(c, lx - 16, py + ph - 2, 13, 4, C.nCyan);
+  rect(c, rrx + rrw + SD + 3, py + ph - 2, 12, 4, C.nPink);
+  rect(c, edx, py + ph, 22, 4, C.nGold);
   c.restore();
 }
 
