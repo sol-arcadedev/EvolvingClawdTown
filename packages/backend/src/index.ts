@@ -1,0 +1,170 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+import http from 'http';
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import { Pool } from 'pg';
+import Redis from 'ioredis';
+import { DB } from './db/queries';
+import { GameEngine, GameEvent } from './game/engine';
+import { TickRunner } from './game/tick';
+import { ChainListener } from './chain/listener';
+import { createRestRouter } from './api/rest';
+import { TownWebSocketServer } from './api/ws';
+import { log } from './utils/logger';
+
+const startedAt = Date.now();
+
+async function main() {
+  const PORT = parseInt(process.env.PORT || '3001');
+  const TICK_INTERVAL = parseInt(process.env.TICK_INTERVAL_MS || '30000');
+
+  // Database
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  pool.on('error', (err) => log.error('Unexpected PG pool error', err));
+  const db = new DB(pool);
+
+  // Redis (for publishing events)
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  const redisPub = new Redis(redisUrl);
+  redisPub.on('error', (err) => log.error('Redis pub error', err));
+
+  // Game engine
+  const engine = new GameEngine(db);
+
+  // Express app
+  const app = express();
+  app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+  app.use(express.json());
+
+  // Request logging
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (req.path !== '/api/health' && req.path !== '/api/metrics') {
+      log.debug(`${req.method} ${req.path}`);
+    }
+    next();
+  });
+
+  app.use(createRestRouter(db));
+
+  // HTTP server
+  const server = http.createServer(app);
+
+  // WebSocket server
+  const wsServer = new TownWebSocketServer(server, db, redisUrl);
+
+  // Chain listener
+  let chainListener: ChainListener | null = null;
+  const mintAddress = process.env.TOKEN_MINT_ADDRESS;
+  const rpcUrl = process.env.HELIUS_RPC_URL;
+
+  // Event handler — called by chain listener
+  const handleGameEvent = async (event: GameEvent) => {
+    try {
+      const result = await engine.processEvent(event);
+      if (!result) return;
+
+      await redisPub.publish(
+        'town:updates',
+        JSON.stringify({
+          address: result.walletRow.address,
+          tokenBalance: result.walletRow.token_balance,
+          plotX: result.walletRow.plot_x,
+          plotY: result.walletRow.plot_y,
+          houseTier: result.walletRow.house_tier,
+          buildProgress: parseFloat(result.walletRow.build_progress),
+          damagePct: parseFloat(result.walletRow.damage_pct),
+          buildSpeedMult: parseFloat(result.walletRow.build_speed_mult),
+          boostExpiresAt: result.walletRow.boost_expires_at?.toISOString() ?? null,
+          colorHue: result.walletRow.color_hue,
+          isNew: result.isNew,
+        })
+      );
+
+      await redisPub.publish(
+        'town:trade',
+        JSON.stringify({
+          walletAddress: event.walletAddress,
+          eventType: event.type,
+          tokenAmountDelta: event.tokenAmountDelta.toString(),
+          timestamp: event.timestamp.toISOString(),
+        })
+      );
+
+      log.info(
+        `[${event.type.toUpperCase()}] ${event.walletAddress.slice(0, 8)}... | ` +
+          `tier=${result.walletState.house_tier} build=${result.walletState.build_progress}% ` +
+          `dmg=${result.walletState.damage_pct}%`
+      );
+    } catch (err) {
+      log.error('Error processing game event', err);
+    }
+  };
+
+  if (mintAddress && rpcUrl && mintAddress !== 'your_pump_fun_token_mint_pubkey') {
+    chainListener = new ChainListener(rpcUrl, mintAddress, db, handleGameEvent);
+    await chainListener.start();
+  } else {
+    log.warn('TOKEN_MINT_ADDRESS not configured — chain listener disabled');
+  }
+
+  // Metrics endpoint
+  app.get('/api/metrics', async (_req: Request, res: Response) => {
+    try {
+      const stats = await db.getStats();
+      const chainStats = chainListener?.getStats() ?? { subscriptionId: null, eventsProcessed: 0 };
+      res.json({
+        uptime: Math.floor((Date.now() - startedAt) / 1000),
+        wsClients: wsServer.getClientCount(),
+        chain: chainStats,
+        game: stats,
+        memory: process.memoryUsage(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to gather metrics' });
+    }
+  });
+
+  // Tick runner
+  const tickRunner = new TickRunner(db, async (updatedCount: number) => {
+    if (updatedCount > 0) {
+      await redisPub.publish(
+        'town:tick',
+        JSON.stringify({ updatedCount, timestamp: Date.now() })
+      );
+    }
+  }, TICK_INTERVAL);
+  tickRunner.start();
+
+  // Start server
+  server.listen(PORT, () => {
+    log.info(`Claude Town backend running on port ${PORT}`);
+    log.info(`  REST API: http://localhost:${PORT}/api/town`);
+    log.info(`  WebSocket: ws://localhost:${PORT}/ws`);
+    log.info(`  Tick interval: ${TICK_INTERVAL}ms`);
+    log.info(`  Chain listener: ${chainListener ? 'enabled' : 'disabled'}`);
+  });
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    log.info('Shutting down...');
+    tickRunner.stop();
+    chainListener?.stop();
+    await wsServer.close();
+    redisPub.disconnect();
+    await db.end();
+    server.close();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+main().catch((err) => {
+  log.error('Fatal error', err);
+  process.exit(1);
+});
