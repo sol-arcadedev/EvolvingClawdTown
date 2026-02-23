@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 import http from 'http';
 import express, { Request, Response, NextFunction } from 'express';
@@ -27,10 +27,27 @@ async function main() {
   pool.on('error', (err) => log.error('Unexpected PG pool error', err));
   const db = new DB(pool);
 
-  // Redis (for publishing events)
+  // Redis (optional — for multi-instance pub/sub)
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-  const redisPub = new Redis(redisUrl);
-  redisPub.on('error', (err) => log.error('Redis pub error', err));
+  let redisPub: Redis | null = null;
+
+  try {
+    const redis = new Redis(redisUrl, {
+      retryStrategy: (times) => {
+        if (times > 3) return null;
+        return Math.min(times * 500, 3000);
+      },
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+    });
+    redis.on('error', () => {}); // suppress unhandled error events
+    await redis.connect();
+    redisPub = redis;
+    log.info('Redis publisher connected');
+  } catch {
+    log.warn('Redis unavailable — running without pub/sub (single-instance mode)');
+    redisPub = null;
+  }
 
   // Game engine
   const engine = new GameEngine(db);
@@ -53,8 +70,33 @@ async function main() {
   // HTTP server
   const server = http.createServer(app);
 
-  // WebSocket server
-  const wsServer = new TownWebSocketServer(server, db, redisUrl);
+  // WebSocket server (pass null redisUrl if Redis failed)
+  const wsServer = new TownWebSocketServer(server, db, redisPub ? redisUrl : null);
+
+  // Helper: publish via Redis if available, otherwise broadcast directly
+  const publish = async (channel: string, data: string) => {
+    if (redisPub) {
+      await redisPub.publish(channel, data);
+    } else {
+      // Broadcast directly to WebSocket clients
+      try {
+        const parsed = JSON.parse(data);
+        switch (channel) {
+          case 'town:updates':
+            wsServer.broadcastMessage({ type: 'wallet_update', wallet: parsed });
+            break;
+          case 'town:tick':
+            wsServer.broadcastMessage({ type: 'tick', ...parsed });
+            break;
+          case 'town:trade':
+            wsServer.broadcastMessage({ type: 'trade', event: parsed });
+            break;
+        }
+      } catch (err) {
+        log.error('Error broadcasting message:', err);
+      }
+    }
+  };
 
   // Chain listener
   let chainListener: ChainListener | null = null;
@@ -67,7 +109,7 @@ async function main() {
       const result = await engine.processEvent(event);
       if (!result) return;
 
-      await redisPub.publish(
+      await publish(
         'town:updates',
         JSON.stringify({
           address: result.walletRow.address,
@@ -84,7 +126,7 @@ async function main() {
         })
       );
 
-      await redisPub.publish(
+      await publish(
         'town:trade',
         JSON.stringify({
           walletAddress: event.walletAddress,
@@ -131,7 +173,7 @@ async function main() {
   // Tick runner
   const tickRunner = new TickRunner(db, async (updatedCount: number) => {
     if (updatedCount > 0) {
-      await redisPub.publish(
+      await publish(
         'town:tick',
         JSON.stringify({ updatedCount, timestamp: Date.now() })
       );
@@ -146,6 +188,7 @@ async function main() {
     log.info(`  WebSocket: ws://localhost:${PORT}/ws`);
     log.info(`  Tick interval: ${TICK_INTERVAL}ms`);
     log.info(`  Chain listener: ${chainListener ? 'enabled' : 'disabled'}`);
+    log.info(`  Redis: ${redisPub ? 'connected' : 'disabled (single-instance mode)'}`);
   });
 
   // Graceful shutdown
@@ -154,7 +197,7 @@ async function main() {
     tickRunner.stop();
     chainListener?.stop();
     await wsServer.close();
-    redisPub.disconnect();
+    redisPub?.disconnect();
     await db.end();
     server.close();
     process.exit(0);

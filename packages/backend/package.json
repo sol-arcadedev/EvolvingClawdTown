@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "tsx src/db/migrate.ts",
-    "seed": "tsx scripts/seed-test-wallets.ts",
+    "seed": "tsx scripts/seed-holders.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

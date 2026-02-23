@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "Bash(where:*)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"/c/Program Files/GitHub CLI:$PATH\")",
+      "Bash(gh auth status:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(gh repo edit:*)",
+      "Bash(npx vitest run)",
+      "Bash(npx tsx:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm run dev:frontend:*)",
+      "Bash(npm run dev:backend:*)",
+      "Bash(pg_isready:*)",
+      "Bash(psql:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(python:*)"
+    ]
+  }
+}

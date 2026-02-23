@@ -1,43 +1,5 @@
-import { useRef, useEffect } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
 import { TradeEvent } from '../types';
-
-const styles = {
-  container: {
-    position: 'absolute' as const,
-    top: 56,
-    right: 12,
-    width: 220,
-    maxHeight: 'calc(100vh - 80px)',
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 4,
-    zIndex: 10,
-    pointerEvents: 'none' as const,
-  },
-  title: {
-    fontSize: 10,
-    fontWeight: 'bold' as const,
-    color: '#666',
-    textTransform: 'uppercase' as const,
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  list: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 3,
-  },
-  entry: {
-    padding: '4px 8px',
-    background: 'rgba(10, 10, 15, 0.85)',
-    border: '1px solid #1a1a2e',
-    borderRadius: 3,
-    fontSize: 11,
-    fontFamily: "'Courier New', monospace",
-  },
-};
 
 function formatAmount(raw: string): string {
   const num = Math.abs(Number(raw));
@@ -55,36 +17,47 @@ function formatTime(ts: string): string {
 
 function TradeEntry({ trade }: { trade: TradeEvent }) {
   const isBuy = trade.eventType === 'buy' || trade.eventType === 'transfer_in';
-  const color = isBuy ? '#00fff5' : '#ff0080';
-  const label = trade.eventType.toUpperCase().replace('_', ' ');
+  const color = isBuy ? 'var(--cyan)' : 'var(--pink)';
+  const icon = isBuy ? '\u25B2' : '\u25BC';
 
   return (
-    <div style={styles.entry}>
-      <span style={{ color }}>{label}</span>
-      {' '}
-      <span style={{ color: '#888' }}>
-        {trade.walletAddress.slice(0, 4)}...{trade.walletAddress.slice(-4)}
-      </span>
-      <br />
-      <span style={{ color: '#555', fontSize: 10 }}>
-        {formatAmount(trade.tokenAmountDelta)} tokens
-        {' '}
-        {formatTime(trade.timestamp)}
-      </span>
+    <div className="trade-entry">
+      <span className="trade-icon" style={{ color }}>{icon}</span>
+      <div className="trade-details">
+        <div>
+          <span style={{ color, fontWeight: 'bold', fontSize: 10 }}>
+            {trade.eventType.toUpperCase().replace('_', ' ')}
+          </span>
+          {' '}
+          <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+            {trade.walletAddress.slice(0, 4)}...{trade.walletAddress.slice(-4)}
+          </span>
+        </div>
+        <div style={{ color: 'var(--text-dim)', fontSize: 9, marginTop: 1 }}>
+          {formatAmount(trade.tokenAmountDelta)} tokens
+        </div>
+      </div>
+      <span className="trade-time">{formatTime(trade.timestamp)}</span>
     </div>
   );
 }
 
 export default function ActivityFeed() {
   const recentTrades = useTownStore((s) => s.recentTrades);
-  const displayed = recentTrades.slice(0, 10);
+  const displayed = recentTrades.slice(0, 8);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.title}>Live Activity</div>
-      <div style={styles.list}>
+    <div className="activity-panel">
+      <div className="activity-title">
+        <span
+          className="status-dot live"
+          style={{ width: 5, height: 5 }}
+        />
+        Live Activity
+      </div>
+      <div className="activity-list">
         {displayed.length === 0 && (
-          <div style={{ ...styles.entry, color: '#444' }}>
+          <div className="trade-entry" style={{ color: 'var(--text-dim)', justifyContent: 'center' }}>
             Waiting for trades...
           </div>
         )}

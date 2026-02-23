@@ -1,14 +1,51 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
 import ActivityFeed from './ActivityFeed';
 import Leaderboard from './Leaderboard';
+import WalletSearch from './WalletSearch';
+import HouseTooltip from './HouseTooltip';
+import BottomBar from './BottomBar';
 import { useIsMobile } from '../hooks/useIsMobile';
+
+const TOKEN_MINT = import.meta.env.VITE_TOKEN_MINT || import.meta.env.VITE_TOKEN_CONTRACT || '6X9bV5KHtQXErDPXQ13NEYmjf8mzMuLiXk2qgV1xpump';
+
+function CopyIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ verticalAlign: 'middle', marginLeft: 4, opacity: 0.6 }}
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function useCopyToast() {
+  const [show, setShow] = useState(false);
+  const copy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setShow(true);
+      setTimeout(() => setShow(false), 1500);
+    });
+  }, []);
+  return { show, copy };
+}
 
 export default function HUD() {
   const connected = useTownStore((s) => s.connected);
   const walletCount = useTownStore((s) => s.wallets.size);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [walletSearchOpen, setWalletSearchOpen] = useState(false);
   const isMobile = useIsMobile();
+  const { show: toastVisible, copy } = useCopyToast();
 
   const activeBuilders = useTownStore((s) => {
     let count = 0;
@@ -18,127 +55,98 @@ export default function HUD() {
     return count;
   });
 
+  const displayMint = TOKEN_MINT;
+
   return (
     <>
       {/* Top Bar */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: isMobile ? 40 : 44,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: isMobile ? '0 8px' : '0 16px',
-          background: 'rgba(10, 10, 15, 0.9)',
-          borderBottom: '1px solid #1a1a2e',
-          fontFamily: "'Courier New', monospace",
-          fontSize: isMobile ? 10 : 12,
-          zIndex: 20,
-        }}
-      >
-        {/* Left: title + status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12 }}>
-          <span style={{ fontWeight: 'bold', color: '#00fff5', fontSize: isMobile ? 12 : 14 }}>
-            CLAUDE TOWN
-          </span>
-          <span style={{ color: connected ? '#0f0' : '#f44', fontSize: 10 }}>
-            {connected ? 'LIVE' : 'OFFLINE'}
-          </span>
+      <div className={`top-bar${isMobile ? ' mobile' : ''}`}>
+        {/* Left: logo + status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14 }}>
+          <span className={`logo-text${isMobile ? ' mobile' : ''}`}>CLAUDE TOWN</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span className={`status-dot ${connected ? 'live' : 'offline'}`} />
+            <span style={{ fontSize: 9, color: connected ? 'var(--green)' : 'var(--red)', letterSpacing: 1 }}>
+              {connected ? 'LIVE' : 'OFFLINE'}
+            </span>
+          </div>
         </div>
 
-        {/* Center: stats (hidden on very small screens) */}
-        {!isMobile && (
-          <div style={{ display: 'flex', gap: 20, color: '#888' }}>
-            <div>
-              <span style={{ color: '#555' }}>Holders </span>
-              <span style={{ color: '#ccc' }}>{walletCount}</span>
-            </div>
-            <div>
-              <span style={{ color: '#555' }}>Building </span>
-              <span style={{ color: '#00ff88' }}>{activeBuilders}</span>
-            </div>
+        {/* Center: mint address + stats */}
+        <div className="stats-row">
+          <div
+            className="contract-addr"
+            onClick={() => copy(TOKEN_MINT)}
+            title="Click to copy token mint address"
+            style={{ display: 'flex', alignItems: 'center', gap: 2 }}
+          >
+            <span style={{ color: 'var(--text-dim)', marginRight: 2 }}>CA:</span>
+            <span>{displayMint}</span>
+            <CopyIcon />
           </div>
-        )}
+          {!isMobile && (
+            <>
+              <div>
+                <span className="stat-label">Holders</span>
+                <span className="stat-value">{walletCount}</span>
+              </div>
+              <div>
+                <span className="stat-label">Building</span>
+                <span className="stat-value" style={{ color: 'var(--green)' }}>{activeBuilders}</span>
+              </div>
+            </>
+          )}
+        </div>
 
-        {/* Right: leaderboard */}
-        <button
-          onClick={() => setLeaderboardOpen(true)}
-          style={{
-            padding: isMobile ? '4px 8px' : '6px 12px',
-            background: 'transparent',
-            border: '1px solid #333',
-            color: '#888',
-            fontFamily: "'Courier New', monospace",
-            fontSize: 10,
-            cursor: 'pointer',
-            borderRadius: 3,
-          }}
-        >
-          {isMobile ? 'LB' : 'LEADERBOARD'}
-        </button>
+        {/* Right: action buttons */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!isMobile && (
+            <button
+              className={`btn-cyber${walletSearchOpen ? ' active' : ''}`}
+              onClick={() => setWalletSearchOpen((o) => !o)}
+            >
+              SEARCH
+            </button>
+          )}
+          <button className="btn-cyber" onClick={() => setLeaderboardOpen(true)}>
+            {isMobile ? 'LB' : 'LEADERBOARD'}
+          </button>
+        </div>
       </div>
 
-      {/* Activity Feed — right side (hidden on mobile) */}
+      {/* Mobile stats bar */}
+      {isMobile && (
+        <div className="mobile-stats-bar">
+          <span>
+            <span className="stat-label">Holders </span>
+            <span className="stat-value">{walletCount}</span>
+          </span>
+          <span>
+            <span className="stat-label">Building </span>
+            <span className="stat-value" style={{ color: 'var(--green)' }}>{activeBuilders}</span>
+          </span>
+        </div>
+      )}
+
+      {/* Activity Feed — right side (desktop only) */}
       {!isMobile && <ActivityFeed />}
+
+      {/* Wallet Search Panel — left side (desktop only) */}
+      {!isMobile && walletSearchOpen && (
+        <WalletSearch onClose={() => setWalletSearchOpen(false)} />
+      )}
 
       {/* Leaderboard Modal */}
       <Leaderboard open={leaderboardOpen} onClose={() => setLeaderboardOpen(false)} />
 
-      {/* Mobile stats bar */}
-      {isMobile && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 40,
-            left: 0,
-            right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 16,
-            padding: '4px 0',
-            background: 'rgba(10, 10, 15, 0.8)',
-            borderBottom: '1px solid #111',
-            fontSize: 10,
-            fontFamily: "'Courier New', monospace",
-            color: '#888',
-            zIndex: 15,
-          }}
-        >
-          <span>
-            <span style={{ color: '#555' }}>Holders </span>
-            <span style={{ color: '#ccc' }}>{walletCount}</span>
-          </span>
-          <span>
-            <span style={{ color: '#555' }}>Building </span>
-            <span style={{ color: '#00ff88' }}>{activeBuilders}</span>
-          </span>
-        </div>
-      )}
+      {/* House Tooltip */}
+      <HouseTooltip />
 
-      {/* Zoom hint — bottom right (desktop only) */}
-      {!isMobile && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 12,
-            right: 12,
-            padding: '6px 10px',
-            background: 'rgba(10, 10, 15, 0.7)',
-            border: '1px solid #1a1a2e',
-            borderRadius: 4,
-            fontSize: 11,
-            color: '#444',
-            pointerEvents: 'none',
-            zIndex: 10,
-            fontFamily: "'Courier New', monospace",
-          }}
-        >
-          Drag to pan / Scroll to zoom
-        </div>
-      )}
+      {/* Bottom Bar (desktop only) */}
+      {!isMobile && <BottomBar />}
+
+      {/* Copy toast */}
+      {toastVisible && <div className="copy-toast">Copied to clipboard</div>}
     </>
   );
 }

@@ -60,17 +60,34 @@ export class DB {
     return rows;
   }
 
+  // Grid positions reserved for decorative city features (plazas, parks, billboards)
+  private static readonly RESERVED_PLOTS = new Set([
+    '0,0', '-1,0', '0,-1', '-1,-1',     // Central 2×2 plaza
+    '5,0', '5,-1',                        // East park
+    '-6,0', '-6,-1',                      // West park
+    '0,-6', '-1,-6',                      // North plaza
+    '0,5', '-1,5',                        // South plaza
+    '3,3', '-4,3', '3,-4', '-4,-4',      // Diagonal landmarks
+    '7,4', '-8,4', '7,-5', '-8,-5',      // Outer landmarks
+  ]);
+
+  private isReservedPlot(x: number, y: number): boolean {
+    return DB.RESERVED_PLOTS.has(`${x},${y}`);
+  }
+
   async getNextPlot(): Promise<{ x: number; y: number }> {
-    // Spiral outward from (0,0)
+    // Spiral outward from (0,0), skipping reserved decorative positions
     const { rows } = await this.pool.query<{ max_dist: number }>(
       `SELECT COALESCE(MAX(GREATEST(ABS(x), ABS(y))), 0) AS max_dist FROM plot_grid`
     );
     const maxDist = rows[0].max_dist;
 
     // Try to find an open slot in the current spiral ring, then expand
-    for (let ring = 0; ring <= maxDist + 1; ring++) {
+    for (let ring = 0; ring <= maxDist + 2; ring++) {
       const slots = this.generateSpiralRing(ring);
       for (const slot of slots) {
+        if (this.isReservedPlot(slot.x, slot.y)) continue;
+
         const { rows: existing } = await this.pool.query(
           'SELECT 1 FROM plot_grid WHERE x = $1 AND y = $2',
           [slot.x, slot.y]

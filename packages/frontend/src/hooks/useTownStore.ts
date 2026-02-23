@@ -5,18 +5,24 @@ interface TownStore {
   wallets: Map<string, WalletState>;
   recentTrades: TradeEvent[];
   connected: boolean;
+  selectedHouse: string | null;
+  locateHouse: ((address: string) => void) | null;
 
   // Actions
   applySnapshot: (wallets: WalletState[]) => void;
   applyWalletUpdate: (update: WalletState) => void;
   addTradeEvent: (event: TradeEvent) => void;
   setConnected: (connected: boolean) => void;
+  setSelectedHouse: (address: string | null) => void;
+  setLocateHouse: (fn: ((address: string) => void) | null) => void;
 }
 
 export const useTownStore = create<TownStore>((set) => ({
   wallets: new Map(),
   recentTrades: [],
   connected: false,
+  selectedHouse: null,
+  locateHouse: null,
 
   applySnapshot: (wallets) => {
     const map = new Map<string, WalletState>();
@@ -41,4 +47,6 @@ export const useTownStore = create<TownStore>((set) => ({
   },
 
   setConnected: (connected) => set({ connected }),
+  setSelectedHouse: (address) => set({ selectedHouse: address }),
+  setLocateHouse: (fn) => set({ locateHouse: fn }),
 }));

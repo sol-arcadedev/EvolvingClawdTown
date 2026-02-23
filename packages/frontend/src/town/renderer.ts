@@ -10,6 +10,18 @@ export async function createApp(canvas: HTMLCanvasElement): Promise<Application>
     antialias: false,
     resolution: window.devicePixelRatio || 1,
     autoDensity: true,
+    preference: 'webgl',
+    preferWebGLVersion: 2,
+  });
+
+  // Handle WebGL context loss gracefully
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    console.warn('WebGL context lost — will restore on next frame');
+  });
+
+  canvas.addEventListener('webglcontextrestored', () => {
+    console.log('WebGL context restored');
   });
 
   return app;

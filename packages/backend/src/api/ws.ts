@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import Redis from 'ioredis';
 import { DB } from '../db/queries';
+import { log } from '../utils/logger';
 
 export interface WsMessage {
   type: 'snapshot' | 'wallet_update' | 'tick' | 'trade';
@@ -17,51 +18,74 @@ interface ExtWebSocket extends WebSocket {
 
 export class TownWebSocketServer {
   private wss: WebSocketServer;
-  private redisSub: Redis;
+  private redisSub: Redis | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     server: HttpServer,
     private db: DB,
-    redisUrl: string
+    redisUrl: string | null
   ) {
     this.wss = new WebSocketServer({ server, path: '/ws' });
-    this.redisSub = new Redis(redisUrl);
 
-    this.setupRedisSubscription();
+    if (redisUrl) {
+      this.setupRedisSubscription(redisUrl);
+    }
     this.setupConnectionHandler();
     this.startHeartbeat();
   }
 
-  private setupRedisSubscription(): void {
-    this.redisSub.subscribe('town:updates', 'town:tick', 'town:trade');
+  private setupRedisSubscription(redisUrl: string): void {
+    try {
+      this.redisSub = new Redis(redisUrl, {
+        retryStrategy: (times) => {
+          if (times > 3) return null; // stop retrying
+          return Math.min(times * 500, 3000);
+        },
+        maxRetriesPerRequest: 1,
+        lazyConnect: true,
+      });
 
-    this.redisSub.on('message', (channel: string, message: string) => {
-      let wsMessage: WsMessage;
+      this.redisSub.on('error', (err) => {
+        log.warn('Redis subscriber unavailable, running without pub/sub');
+        this.redisSub?.disconnect();
+        this.redisSub = null;
+      });
 
-      try {
-        switch (channel) {
-          case 'town:updates':
-            wsMessage = { type: 'wallet_update', wallet: JSON.parse(message) };
-            break;
-          case 'town:tick':
-            wsMessage = { type: 'tick', ...JSON.parse(message) };
-            break;
-          case 'town:trade':
-            wsMessage = { type: 'trade', event: JSON.parse(message) };
-            break;
-          default:
-            return;
+      this.redisSub.connect().then(() => {
+        this.redisSub?.subscribe('town:updates', 'town:tick', 'town:trade');
+        log.info('Redis pub/sub connected');
+      }).catch(() => {
+        log.warn('Redis connection failed, running without pub/sub');
+        this.redisSub = null;
+      });
+
+      this.redisSub.on('message', (channel: string, message: string) => {
+        let wsMessage: WsMessage;
+
+        try {
+          switch (channel) {
+            case 'town:updates':
+              wsMessage = { type: 'wallet_update', wallet: JSON.parse(message) };
+              break;
+            case 'town:tick':
+              wsMessage = { type: 'tick', ...JSON.parse(message) };
+              break;
+            case 'town:trade':
+              wsMessage = { type: 'trade', event: JSON.parse(message) };
+              break;
+            default:
+              return;
+          }
+          this.broadcast(wsMessage);
+        } catch (err) {
+          log.error('Error processing Redis message:', err);
         }
-        this.broadcast(wsMessage);
-      } catch (err) {
-        console.error('Error processing Redis message:', err);
-      }
-    });
-
-    this.redisSub.on('error', (err) => {
-      console.error('Redis subscriber error:', err);
-    });
+      });
+    } catch {
+      log.warn('Redis setup failed, running without pub/sub');
+      this.redisSub = null;
+    }
   }
 
   private setupConnectionHandler(): void {
@@ -69,7 +93,7 @@ export class TownWebSocketServer {
       const extWs = ws as ExtWebSocket;
       extWs.isAlive = true;
 
-      console.log(`WebSocket client connected (total: ${this.wss.clients.size})`);
+      log.info(`WebSocket client connected (total: ${this.wss.clients.size})`);
 
       extWs.on('pong', () => {
         extWs.isAlive = true;
@@ -95,15 +119,15 @@ export class TownWebSocketServer {
         };
         extWs.send(JSON.stringify(snapshot));
       } catch (err) {
-        console.error('Error sending snapshot:', err);
+        log.error('Error sending snapshot:', err);
       }
 
       extWs.on('close', () => {
-        console.log(`WebSocket client disconnected (total: ${this.wss.clients.size})`);
+        log.info(`WebSocket client disconnected (total: ${this.wss.clients.size})`);
       });
 
       extWs.on('error', (err) => {
-        console.error('WebSocket client error:', err);
+        log.error('WebSocket client error:', err);
       });
     });
   }
@@ -120,6 +144,11 @@ export class TownWebSocketServer {
         extWs.ping();
       });
     }, HEARTBEAT_INTERVAL);
+  }
+
+  /** Broadcast directly (used when Redis is unavailable) */
+  broadcastMessage(message: WsMessage): void {
+    this.broadcast(message);
   }
 
   private broadcast(message: WsMessage): void {
@@ -139,7 +168,7 @@ export class TownWebSocketServer {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
-    this.redisSub.disconnect();
+    this.redisSub?.disconnect();
     this.wss.close();
   }
 }
