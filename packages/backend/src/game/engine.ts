@@ -1,6 +1,7 @@
 import { DB, WalletRow, WalletStateUpdate } from '../db/queries';
 import {
   getTier,
+  getEffectiveTier,
   walletPctOfSupply,
   calcDamage,
   calcBuildSpeedBoost,
@@ -32,20 +33,10 @@ export class GameEngine {
   constructor(private db: DB) {}
 
   async processEvent(event: GameEvent): Promise<ProcessedUpdate | null> {
-    // Idempotency check
-    const inserted = await this.db.insertTradeEvent(
-      event.txSignature,
-      event.walletAddress,
-      event.type,
-      event.tokenAmountDelta < 0n ? -event.tokenAmountDelta : event.tokenAmountDelta,
-      event.solAmount
-    );
-    if (!inserted) return null; // duplicate
-
     let wallet = await this.db.getWallet(event.walletAddress);
     let isNew = false;
 
-    // New wallet — assign plot
+    // New wallet — create first so trade_events FK is satisfied
     if (!wallet) {
       const plot = await this.db.getNextPlot();
       const hue = colorHueFromAddress(event.walletAddress);
@@ -64,6 +55,16 @@ export class GameEngine {
       );
       isNew = true;
 
+      // Idempotency check — insert trade event after wallet exists
+      const inserted = await this.db.insertTradeEvent(
+        event.txSignature,
+        event.walletAddress,
+        event.type,
+        event.tokenAmountDelta < 0n ? -event.tokenAmountDelta : event.tokenAmountDelta,
+        event.solAmount
+      );
+      if (!inserted) return null; // duplicate
+
       return {
         walletState: {
           address: event.walletAddress,
@@ -80,10 +81,22 @@ export class GameEngine {
       };
     }
 
+    // Existing wallet — idempotency check
+    const inserted = await this.db.insertTradeEvent(
+      event.txSignature,
+      event.walletAddress,
+      event.type,
+      event.tokenAmountDelta < 0n ? -event.tokenAmountDelta : event.tokenAmountDelta,
+      event.solAmount
+    );
+    if (!inserted) return null; // duplicate
+
     // Existing wallet — apply game rules
     const totalSupply = await this.db.getTotalSupply();
     const pct = walletPctOfSupply(event.newBalance, totalSupply);
-    const newTier = getTier(pct);
+    const baseTier = getTier(pct);
+    const holdingDurationMs = Date.now() - wallet.first_seen_at.getTime();
+    const newTier = getEffectiveTier(baseTier, holdingDurationMs);
     const oldTier = wallet.house_tier;
 
     let buildProgress = parseFloat(wallet.build_progress);

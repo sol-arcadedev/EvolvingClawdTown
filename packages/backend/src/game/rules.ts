@@ -54,10 +54,40 @@ export function walletPctOfSupply(balance: bigint, totalSupply: bigint): number 
   return (Number(balance) / Number(totalSupply)) * 100;
 }
 
+// Holding duration bonus thresholds (in ms)
+const HOLD_BONUS_1_MS = parseInt(process.env.HOLD_BONUS_1_MS || '60000');   // +1 tier after 60s
+const HOLD_BONUS_2_MS = parseInt(process.env.HOLD_BONUS_2_MS || '180000');  // +2 tier after 180s
+const MAX_TIER = 5;
+
+export function getEffectiveTier(baseTier: number, holdingDurationMs: number): number {
+  let bonus = 0;
+  if (holdingDurationMs >= HOLD_BONUS_2_MS) bonus = 2;
+  else if (holdingDurationMs >= HOLD_BONUS_1_MS) bonus = 1;
+  return Math.min(MAX_TIER, baseTier + bonus);
+}
+
+// Cyberpunk-friendly hue bands (skip greens 50-160 and dull yellows 35-50)
+const CYBER_HUES = [
+  [170, 210],  // cyan / teal
+  [210, 270],  // blue / indigo
+  [270, 330],  // purple / magenta
+  [330, 360],  // pink / hot pink
+  [0, 35],     // red / warm red
+];
+// Total span of usable hues
+const CYBER_TOTAL = CYBER_HUES.reduce((s, [a, b]) => s + (b - a), 0); // 225°
+
 export function colorHueFromAddress(address: string): number {
   let hash = 0;
   for (let i = 0; i < address.length; i++) {
     hash = ((hash << 5) - hash + address.charCodeAt(i)) | 0;
   }
-  return ((hash % 360) + 360) % 360;
+  // Map hash to a position within the cyberpunk hue bands
+  let pos = ((hash % CYBER_TOTAL) + CYBER_TOTAL) % CYBER_TOTAL;
+  for (const [start, end] of CYBER_HUES) {
+    const span = end - start;
+    if (pos < span) return start + pos;
+    pos -= span;
+  }
+  return 200; // fallback: blue
 }

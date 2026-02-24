@@ -22,10 +22,11 @@ export interface TradeEvent {
 }
 
 export type WsMessage =
-  | { type: 'snapshot'; wallets: WalletState[] }
+  | { type: 'snapshot'; wallets: WalletState[]; consoleLines: string[] }
   | { type: 'wallet_update'; wallet: WalletState }
   | { type: 'tick'; updatedCount: number; timestamp: number }
-  | { type: 'trade'; event: TradeEvent };
+  | { type: 'trade'; event: TradeEvent }
+  | { type: 'console_line'; line: string };
 
 export interface SpriteConfig {
   base: string;

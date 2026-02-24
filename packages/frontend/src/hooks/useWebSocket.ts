@@ -31,13 +31,16 @@ export function useWebSocket(url: string) {
 
         switch (msg.type) {
           case 'snapshot':
-            useTownStore.getState().applySnapshot(msg.wallets);
+            useTownStore.getState().applySnapshot(msg.wallets, msg.consoleLines);
             break;
           case 'wallet_update':
             useTownStore.getState().applyWalletUpdate(msg.wallet);
             break;
           case 'trade':
             useTownStore.getState().addTradeEvent(msg.event);
+            break;
+          case 'console_line':
+            useTownStore.getState().addConsoleLine(msg.line);
             break;
           case 'tick':
             // Tick events can trigger visual pulse — handled by PixiJS subscriber

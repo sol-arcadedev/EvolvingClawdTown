@@ -170,6 +170,43 @@ async function main() {
     }
   });
 
+  // ── Mainframe console broadcaster ──
+  // All AI messages are defined here so every client sees the same lines at the same time
+  const AI_MESSAGES = [
+    'Initializing neural pathways...',
+    'Optimizing city grid layout...',
+    'Deploying nano-constructors...',
+    'Scanning blockchain activity...',
+    'Calibrating holographic projectors...',
+    'Synchronizing quantum relays...',
+    'Analyzing token flow patterns...',
+    'Upgrading defense matrices...',
+    'Compiling architectural schematics...',
+    'Routing energy to construction sites...',
+    'Defragmenting city memory banks...',
+    'Establishing neural links...',
+    'Processing wallet signatures...',
+    'Generating procedural structures...',
+    'Monitoring city health metrics...',
+    'Allocating compute resources...',
+    'Recalibrating beam frequencies...',
+    'Integrating new residents...',
+    'Patching security protocols...',
+    'Expanding city infrastructure...',
+  ];
+  const CONSOLE_LINE_INTERVAL = parseInt(process.env.CONSOLE_LINE_INTERVAL_MS || '3000');
+
+  // Seed initial lines
+  wsServer.pushConsoleLine('> MAINFRAME v3.0 ONLINE');
+  wsServer.pushConsoleLine('> Neural core initialized');
+  wsServer.pushConsoleLine('> City grid: ACTIVE');
+
+  let consoleMsgIndex = 0;
+  const consoleTimer = setInterval(() => {
+    consoleMsgIndex = (consoleMsgIndex + 1) % AI_MESSAGES.length;
+    wsServer.pushConsoleLine('> ' + AI_MESSAGES[consoleMsgIndex]);
+  }, CONSOLE_LINE_INTERVAL);
+
   // Tick runner
   const tickRunner = new TickRunner(db, async (updatedCount: number) => {
     if (updatedCount > 0) {
@@ -194,6 +231,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     log.info('Shutting down...');
+    clearInterval(consoleTimer);
     tickRunner.stop();
     chainListener?.stop();
     await wsServer.close();

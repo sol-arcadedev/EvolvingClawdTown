@@ -1,126 +1,108 @@
 import { Container } from 'pixi.js';
+import { ZOOM_MIN, ZOOM_MAX, ZOOM_SPEED } from './constants';
 
-export class Camera {
-  public x = 0;
-  public y = 0;
-  public zoom = 1;
+export function setupCamera(world: Container, canvas: HTMLCanvasElement) {
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  let animId: number | null = null;
 
-  private isDragging = false;
-  private dragStartX = 0;
-  private dragStartY = 0;
-  private camStartX = 0;
-  private camStartY = 0;
+  const onPointerDown = (e: PointerEvent) => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.style.cursor = 'grabbing';
+    // Cancel any ongoing pan animation on user interaction
+    if (animId !== null) { cancelAnimationFrame(animId); animId = null; }
+  };
 
-  private minZoom = 0.2;
-  private maxZoom = 3;
+  const onPointerMove = (e: PointerEvent) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    world.x += dx;
+    world.y += dy;
+  };
 
-  constructor(
-    private container: Container,
-    private canvas: HTMLCanvasElement
-  ) {
-    this.setupControls();
-  }
+  const onPointerUp = () => {
+    dragging = false;
+    canvas.style.cursor = 'grab';
+  };
 
-  private setupControls(): void {
-    const el = this.canvas;
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    if (animId !== null) { cancelAnimationFrame(animId); animId = null; }
+    const delta = -e.deltaY * ZOOM_SPEED;
+    const oldScale = world.scale.x;
+    const newScale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, oldScale + delta * oldScale));
 
-    // Pan — mouse drag
-    el.addEventListener('pointerdown', (e) => {
-      this.isDragging = true;
-      this.dragStartX = e.clientX;
-      this.dragStartY = e.clientY;
-      this.camStartX = this.x;
-      this.camStartY = this.y;
-      el.style.cursor = 'grabbing';
-    });
+    // Zoom toward mouse position
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
 
-    window.addEventListener('pointermove', (e) => {
-      if (!this.isDragging) return;
-      const dx = e.clientX - this.dragStartX;
-      const dy = e.clientY - this.dragStartY;
-      this.x = this.camStartX + dx / this.zoom;
-      this.y = this.camStartY + dy / this.zoom;
-      this.applyTransform();
-    });
+    const worldX = (mx - world.x) / oldScale;
+    const worldY = (my - world.y) / oldScale;
 
-    window.addEventListener('pointerup', () => {
-      this.isDragging = false;
-      el.style.cursor = 'grab';
-    });
+    world.scale.set(newScale);
+    world.x = mx - worldX * newScale;
+    world.y = my - worldY * newScale;
+  };
 
-    // Zoom — scroll wheel
-    el.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * zoomFactor));
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointerleave', onPointerUp);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.style.cursor = 'grab';
 
-      // Zoom toward mouse position
-      const rect = el.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+  /** Smoothly pan + zoom so that (worldTargetX, worldTargetY) is centered on screen */
+  function panTo(worldTargetX: number, worldTargetY: number) {
+    if (animId !== null) cancelAnimationFrame(animId);
 
-      const worldXBefore = (mouseX - this.container.x) / this.zoom;
-      const worldYBefore = (mouseY - this.container.y) / this.zoom;
+    const targetScale = 1.2; // zoom in nicely
+    const duration = 600; // ms
+    const startTime = performance.now();
+    const startX = world.x;
+    const startY = world.y;
+    const startScale = world.scale.x;
 
-      this.zoom = newZoom;
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
 
-      const worldXAfter = (mouseX - this.container.x) / this.zoom;
-      const worldYAfter = (mouseY - this.container.y) / this.zoom;
+    const endX = cx - worldTargetX * targetScale;
+    const endY = cy - worldTargetY * targetScale;
 
-      this.x += worldXAfter - worldXBefore;
-      this.y += worldYAfter - worldYBefore;
+    function step(now: number) {
+      const t = Math.min((now - startTime) / duration, 1);
+      // ease-out cubic
+      const e = 1 - Math.pow(1 - t, 3);
 
-      this.applyTransform();
-    }, { passive: false });
+      const s = startScale + (targetScale - startScale) * e;
+      world.scale.set(s);
+      world.x = startX + (endX - startX) * e;
+      world.y = startY + (endY - startY) * e;
 
-    // Touch pinch zoom
-    let lastTouchDist = 0;
-    el.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastTouchDist = Math.sqrt(dx * dx + dy * dy);
+      if (t < 1) {
+        animId = requestAnimationFrame(step);
+      } else {
+        animId = null;
       }
-    });
-
-    el.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2) {
-        e.preventDefault();
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const scale = dist / lastTouchDist;
-        this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * scale));
-        lastTouchDist = dist;
-        this.applyTransform();
-      }
-    }, { passive: false });
-
-    el.style.cursor = 'grab';
+    }
+    animId = requestAnimationFrame(step);
   }
 
-  applyTransform(): void {
-    this.container.scale.set(this.zoom);
-    this.container.x = this.x * this.zoom + this.canvas.width / 2;
-    this.container.y = this.y * this.zoom + this.canvas.height / 2;
-  }
+  const cleanup = () => {
+    if (animId !== null) cancelAnimationFrame(animId);
+    canvas.removeEventListener('pointerdown', onPointerDown);
+    canvas.removeEventListener('pointermove', onPointerMove);
+    canvas.removeEventListener('pointerup', onPointerUp);
+    canvas.removeEventListener('pointerleave', onPointerUp);
+    canvas.removeEventListener('wheel', onWheel);
+  };
 
-  centerOn(worldX: number, worldY: number): void {
-    this.x = -worldX;
-    this.y = -worldY;
-    this.applyTransform();
-  }
-
-  getViewportBounds(): { left: number; top: number; right: number; bottom: number } {
-    const halfW = this.canvas.width / 2 / this.zoom;
-    const halfH = this.canvas.height / 2 / this.zoom;
-    const cx = -this.x;
-    const cy = -this.y;
-    return {
-      left: cx - halfW,
-      top: cy - halfH,
-      right: cx + halfW,
-      bottom: cy + halfH,
-    };
-  }
+  return { cleanup, panTo };
 }

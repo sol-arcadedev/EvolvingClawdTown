@@ -1,17 +1,22 @@
 import { create } from 'zustand';
 import { WalletState, TradeEvent } from '../types';
 
+const MAX_CONSOLE_LINES = 14;
+
 interface TownStore {
   wallets: Map<string, WalletState>;
   recentTrades: TradeEvent[];
+  consoleLines: string[];
   connected: boolean;
   selectedHouse: string | null;
   locateHouse: ((address: string) => void) | null;
 
   // Actions
-  applySnapshot: (wallets: WalletState[]) => void;
+  applySnapshot: (wallets: WalletState[], consoleLines?: string[]) => void;
   applyWalletUpdate: (update: WalletState) => void;
   addTradeEvent: (event: TradeEvent) => void;
+  addConsoleLine: (line: string) => void;
+  setConsoleLines: (lines: string[]) => void;
   setConnected: (connected: boolean) => void;
   setSelectedHouse: (address: string | null) => void;
   setLocateHouse: (fn: ((address: string) => void) | null) => void;
@@ -20,16 +25,19 @@ interface TownStore {
 export const useTownStore = create<TownStore>((set) => ({
   wallets: new Map(),
   recentTrades: [],
+  consoleLines: [],
   connected: false,
   selectedHouse: null,
   locateHouse: null,
 
-  applySnapshot: (wallets) => {
+  applySnapshot: (wallets, consoleLines) => {
     const map = new Map<string, WalletState>();
     for (const w of wallets) {
       map.set(w.address, w);
     }
-    set({ wallets: map });
+    const update: Partial<TownStore> = { wallets: map };
+    if (consoleLines) update.consoleLines = consoleLines.slice(-MAX_CONSOLE_LINES);
+    set(update);
   },
 
   applyWalletUpdate: (update) => {
@@ -45,6 +53,15 @@ export const useTownStore = create<TownStore>((set) => ({
       recentTrades: [event, ...state.recentTrades].slice(0, 50),
     }));
   },
+
+  addConsoleLine: (line) => {
+    set((state) => {
+      const next = [...state.consoleLines, line];
+      return { consoleLines: next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next };
+    });
+  },
+
+  setConsoleLines: (lines) => set({ consoleLines: lines.slice(-MAX_CONSOLE_LINES) }),
 
   setConnected: (connected) => set({ connected }),
   setSelectedHouse: (address) => set({ selectedHouse: address }),

@@ -5,7 +5,7 @@ import { DB } from '../db/queries';
 import { log } from '../utils/logger';
 
 export interface WsMessage {
-  type: 'snapshot' | 'wallet_update' | 'tick' | 'trade';
+  type: 'snapshot' | 'wallet_update' | 'tick' | 'trade' | 'console_line';
   [key: string]: any;
 }
 
@@ -20,6 +20,7 @@ export class TownWebSocketServer {
   private wss: WebSocketServer;
   private redisSub: Redis | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private consoleLines: string[] = [];
 
   constructor(
     server: HttpServer,
@@ -53,7 +54,7 @@ export class TownWebSocketServer {
       });
 
       this.redisSub.connect().then(() => {
-        this.redisSub?.subscribe('town:updates', 'town:tick', 'town:trade');
+        this.redisSub?.subscribe('town:updates', 'town:tick', 'town:trade', 'town:console');
         log.info('Redis pub/sub connected');
       }).catch(() => {
         log.warn('Redis connection failed, running without pub/sub');
@@ -74,6 +75,13 @@ export class TownWebSocketServer {
             case 'town:trade':
               wsMessage = { type: 'trade', event: JSON.parse(message) };
               break;
+            case 'town:console': {
+              const parsed = JSON.parse(message);
+              this.consoleLines.push(parsed.line);
+              if (this.consoleLines.length > 14) this.consoleLines = this.consoleLines.slice(-14);
+              wsMessage = { type: 'console_line', line: parsed.line };
+              break;
+            }
             default:
               return;
           }
@@ -115,12 +123,26 @@ export class TownWebSocketServer {
             buildSpeedMult: parseFloat(w.build_speed_mult),
             boostExpiresAt: w.boost_expires_at?.toISOString() ?? null,
             colorHue: w.color_hue,
+            firstSeenAt: w.first_seen_at.toISOString(),
           })),
+          consoleLines: this.consoleLines,
         };
         extWs.send(JSON.stringify(snapshot));
       } catch (err) {
         log.error('Error sending snapshot:', err);
       }
+
+      // Handle incoming messages — relay broadcasts from internal tools (e.g. simulator)
+      extWs.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type === 'relay' && msg.payload) {
+            this.broadcastToOthers(extWs, msg.payload);
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      });
 
       extWs.on('close', () => {
         log.info(`WebSocket client disconnected (total: ${this.wss.clients.size})`);
@@ -158,6 +180,25 @@ export class TownWebSocketServer {
         client.send(data);
       }
     });
+  }
+
+  /** Broadcast to all clients except the sender */
+  private broadcastToOthers(sender: WebSocket, message: WsMessage): void {
+    const data = JSON.stringify(message);
+    this.wss.clients.forEach((client) => {
+      if (client !== sender && client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    });
+  }
+
+  /** Push a console line to all clients and store it for new connections */
+  pushConsoleLine(line: string): void {
+    this.consoleLines.push(line);
+    if (this.consoleLines.length > 14) {
+      this.consoleLines = this.consoleLines.slice(-14);
+    }
+    this.broadcast({ type: 'console_line', line });
   }
 
   getClientCount(): number {
