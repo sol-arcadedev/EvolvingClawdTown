@@ -6,6 +6,7 @@ import {
   TIER_SCALE,
   COL_CYAN,
   COL_RED,
+  MAINFRAME_PLOTS,
 } from './constants';
 import { MAINFRAME_X, MAINFRAME_Y } from './mainframe';
 import type { WalletState } from '../types';
@@ -13,6 +14,15 @@ import type { WalletState } from '../types';
 const drawnHash = new Map<string, string>();
 const activeBeams = new Map<string, Graphics>();
 const buildingContainers = new Map<string, Container>();
+
+// Mainframe reserved zone — buildings on these plots are hidden
+const RESERVED_SET = new Set(MAINFRAME_PLOTS.map(([x, y]) => `${x},${y}`));
+// Also reserve the full 4x4 zone matching the backend
+for (let x = -2; x <= 1; x++) {
+  for (let y = -2; y <= 1; y++) {
+    RESERVED_SET.add(`${x},${y}`);
+  }
+}
 
 function walletToIndex(address: string): number {
   let hash = 0;
@@ -582,6 +592,18 @@ export function syncBuildings(
   }
 
   for (const [addr, w] of wallets) {
+    // Skip buildings on mainframe reserved plots
+    if (RESERVED_SET.has(`${w.plotX},${w.plotY}`)) {
+      if (buildingContainers.has(addr)) {
+        const c = buildingContainers.get(addr)!;
+        layer.removeChild(c); c.destroy({ children: true });
+        buildingContainers.delete(addr); drawnHash.delete(addr);
+        const beam = activeBeams.get(addr);
+        if (beam) { beamLayer.removeChild(beam); beam.destroy(); activeBeams.delete(addr); }
+      }
+      continue;
+    }
+
     if (w.tokenBalance === '0' || (w.tokenBalance && BigInt(w.tokenBalance) <= 0n)) {
       if (buildingContainers.has(addr)) {
         const c = buildingContainers.get(addr)!;
@@ -810,5 +832,55 @@ export function updateBeams(frame: number) {
     g.fill({ color: COL_CYAN, alpha: 0.2 });
     g.circle(tx, ty, 1.8);
     g.fill({ color: COL_CYAN, alpha: 0.5 });
+
+    // ── DATA PACKETS — glowing dots traveling from mainframe to building ──
+    // Compute total path length
+    let totalLen = 0;
+    const segLens: number[] = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      const len = Math.sqrt(
+        (path[i + 1].x - path[i].x) ** 2 + (path[i + 1].y - path[i].y) ** 2,
+      );
+      segLens.push(len);
+      totalLen += len;
+    }
+    if (totalLen > 1) {
+      // Use position hash to stagger packets so they don't all sync up
+      const stagger = (beamTier * 37 + Math.abs(Math.round(tx) * 7 + Math.round(ty) * 13)) % 1000;
+      const packetCount = Math.min(1 + Math.floor(beamTier / 2), 2);
+      const speed = 18; // pixels per frame
+
+      for (let p = 0; p < packetCount; p++) {
+        // Each packet offset evenly along the loop cycle
+        const rawPos = frame * speed + stagger + (p * totalLen) / packetCount;
+        const cyclePos = ((rawPos % totalLen) + totalLen) % totalLen;
+
+        // Find position on path
+        let remain = cyclePos;
+        let px = path[0].x, py = path[0].y;
+        for (let i = 0; i < segLens.length; i++) {
+          if (remain <= segLens[i]) {
+            const t = remain / segLens[i];
+            px = path[i].x + (path[i + 1].x - path[i].x) * t;
+            py = path[i].y + (path[i + 1].y - path[i].y) * t;
+            break;
+          }
+          remain -= segLens[i];
+        }
+
+        // Soft outer glow
+        g.circle(px, py, 14);
+        g.fill({ color: COL_CYAN, alpha: 0.08 });
+        // Mid glow
+        g.circle(px, py, 8);
+        g.fill({ color: COL_CYAN, alpha: 0.2 });
+        // Inner glow
+        g.circle(px, py, 4);
+        g.fill({ color: COL_CYAN, alpha: 0.5 });
+        // Bright white core
+        g.circle(px, py, 2);
+        g.fill({ color: 0xffffff, alpha: 0.9 });
+      }
+    }
   }
 }
