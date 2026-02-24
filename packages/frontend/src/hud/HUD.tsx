@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
-import { CURSOR_BLINK_SPEED } from '../town/constants';
 
 const TOKEN_CA = 'TokenMintAddress111111111111111111111111111';
 
@@ -144,23 +143,24 @@ function WalletSearch() {
 
 // ── MAINFRAME CONSOLE ──
 
-function MainframeConsole() {
-  const lines = useTownStore((s) => s.consoleLines);
-  const [cursorVisible, setCursorVisible] = useState(true);
-  const logRef = useRef<HTMLDivElement>(null);
+function ThinkingDots() {
+  const [dotCount, setDotCount] = useState(0);
 
-  // Blink cursor
   useEffect(() => {
-    const id = setInterval(() => setCursorVisible((v) => !v), CURSOR_BLINK_SPEED);
+    const id = setInterval(() => setDotCount((d) => (d + 1) % 4), 400);
     return () => clearInterval(id);
   }, []);
 
-  // Auto-scroll
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [lines]);
+  return (
+    <span style={{ color: '#00ff88', opacity: 0.5 }}>
+      {'.'.repeat(dotCount)}
+    </span>
+  );
+}
+
+function MainframeConsole() {
+  const lines = useTownStore((s) => s.consoleLines);
+  const currentLine = lines.length > 0 ? lines[lines.length - 1] : '> Initializing...';
 
   return (
     <div style={styles.console}>
@@ -172,14 +172,10 @@ function MainframeConsole() {
         </div>
         <span style={styles.consoleTitle}>MAINFRAME v3.0 — NEURAL CORE</span>
       </div>
-      <div ref={logRef} style={styles.consoleBody}>
-        {lines.map((line, i) => (
-          <div key={i} style={styles.consoleLine}>
-            <span style={{ color: '#00ff88' }}>{line}</span>
-          </div>
-        ))}
+      <div style={styles.consoleBody}>
         <div style={styles.consoleLine}>
-          <span style={{ color: '#00ff88', opacity: cursorVisible ? 1 : 0 }}>{'\u2588'}</span>
+          <span style={{ color: '#00ff88' }}>{currentLine}</span>
+          <ThinkingDots />
         </div>
       </div>
     </div>
@@ -312,7 +308,6 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 16,
     left: 16,
     width: 380,
-    height: 280,
     background: 'rgba(10,14,20,0.92)',
     border: '1px solid rgba(0,255,136,0.25)',
     borderRadius: 8,
