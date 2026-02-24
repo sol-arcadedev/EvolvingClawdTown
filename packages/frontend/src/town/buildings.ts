@@ -14,6 +14,10 @@ import type { WalletState } from '../types';
 const drawnHash = new Map<string, string>();
 const activeBeams = new Map<string, Graphics>();
 const buildingContainers = new Map<string, Container>();
+const blinkingLights = new Map<string, {
+  gfx: Graphics;
+  lights: { x: number; y: number; phase: number; speed: number; color: number; size: number }[];
+}>();
 
 // Mainframe reserved zone — buildings on these plots are hidden
 const RESERVED_SET = new Set(MAINFRAME_PLOTS.map(([x, y]) => `${x},${y}`));
@@ -588,6 +592,7 @@ export function syncBuildings(
       buildingContainers.delete(addr); drawnHash.delete(addr);
       const beam = activeBeams.get(addr);
       if (beam) { beamLayer.removeChild(beam); beam.destroy(); activeBeams.delete(addr); }
+      blinkingLights.delete(addr);
     }
   }
 
@@ -684,6 +689,55 @@ export function syncBuildings(
           const approxH = drawW * [0, 0.5, 0.7, 1.0, 1.4, 1.8][tier];
           drawDamageOverlay(container, drawW * 0.8, approxH, w.damagePct);
           if (w.damagePct > 50) gfx.alpha = 0.6 + Math.random() * 0.4;
+        }
+
+        // Blinking lights — more lights for higher tiers
+        // Lights are placed in isometric space on the building faces
+        const lightCount = [0, 1, 2, 3, 5, 8][tier] ?? 0;
+        if (lightCount > 0) {
+          const lightGfx = new Graphics();
+          container.addChild(lightGfx);
+          // Match the building's iso unit scale
+          const isoDiv = [0, 6, 8, 10, 12, 14][tier];
+          const u = drawW / isoDiv;
+          lightGfx.scale.set(u);
+          // Building dimensions per tier (width, depth, height)
+          const bDims = [
+            [0, 0, 0],
+            [4, 4, 3],    // tier 1
+            [5, 5, 6],    // tier 2
+            [6, 6, 9],    // tier 3
+            [7, 7, 14],   // tier 4
+            [8, 8, 20],   // tier 5
+          ][tier];
+          const [bw, bd, bh] = bDims;
+          const addrHash = walletToIndex(addr);
+          const lights: { x: number; y: number; phase: number; speed: number; color: number; size: number }[] = [];
+          for (let i = 0; i < lightCount; i++) {
+            const seed = ((addrHash * 31 + i * 97) & 0x7fffffff) / 0x7fffffff;
+            const seed2 = ((addrHash * 53 + i * 71) & 0x7fffffff) / 0x7fffffff;
+            // Place on right face or left face (alternating)
+            const onRight = i % 2 === 0;
+            const faceY = seed * (bd * 0.7) + bd * 0.15;
+            const faceZ = (seed2 * 0.6 + 0.2) * bh;
+            let sx: number, sy: number;
+            if (onRight) {
+              // Right face: x = bw/2
+              const [px, py] = iso(bw / 2, -bd / 2 + faceY, faceZ);
+              sx = px; sy = py;
+            } else {
+              // Left face: y = bd/2
+              const faceX = seed * (bw * 0.7) + bw * 0.15;
+              const [px, py] = iso(-bw / 2 + faceX, bd / 2, faceZ);
+              sx = px; sy = py;
+            }
+            const phase = seed * Math.PI * 2;
+            const speed = 0.15 + seed2 * 0.25;
+            const color = accent;
+            const size = 0.6 + seed2 * 0.5; // in iso units (scaled by lightGfx)
+            lights.push({ x: sx, y: sy, phase, speed, color, size });
+          }
+          blinkingLights.set(addr, { gfx: lightGfx, lights });
         }
       }
     }
@@ -881,6 +935,27 @@ export function updateBeams(frame: number) {
         g.circle(px, py, 2);
         g.fill({ color: 0xffffff, alpha: 0.9 });
       }
+    }
+  }
+}
+
+export function updateBuildingLights(frame: number) {
+  for (const { gfx, lights } of blinkingLights.values()) {
+    gfx.clear();
+    for (const l of lights) {
+      const pulse = Math.sin(frame * l.speed + l.phase);
+      // Blink on/off — only visible when pulse > 0
+      if (pulse < 0) continue;
+      const alpha = pulse * 0.9;
+      // Outer glow
+      gfx.circle(l.x, l.y, l.size * 2.5);
+      gfx.fill({ color: l.color, alpha: alpha * 0.2 });
+      // Mid glow
+      gfx.circle(l.x, l.y, l.size * 1.5);
+      gfx.fill({ color: l.color, alpha: alpha * 0.4 });
+      // Bright core
+      gfx.circle(l.x, l.y, l.size);
+      gfx.fill({ color: l.color, alpha });
     }
   }
 }
