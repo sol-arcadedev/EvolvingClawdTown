@@ -10,6 +10,7 @@ import {
 } from './constants';
 import { MAINFRAME_X, MAINFRAME_Y } from './mainframe';
 import type { WalletState } from '../types';
+import { useTownStore } from '../hooks/useTownStore';
 
 const drawnHash = new Map<string, string>();
 const activeBeams = new Map<string, Graphics>();
@@ -18,6 +19,17 @@ const blinkingLights = new Map<string, {
   gfx: Graphics;
   lights: { x: number; y: number; phase: number; speed: number; color: number; size: number }[];
 }>();
+
+// Hover clear timer — allows mouse to move from Pixi building to HTML tooltip
+let hoverClearTimer: number | null = null;
+
+/** Cancel any pending hover clear (called when mouse enters tooltip) */
+export function cancelHoverClear() {
+  if (hoverClearTimer !== null) {
+    clearTimeout(hoverClearTimer);
+    hoverClearTimer = null;
+  }
+}
 
 // Mainframe reserved zone — buildings on these plots are hidden
 const RESERVED_SET = new Set(MAINFRAME_PLOTS.map(([x, y]) => `${x},${y}`));
@@ -741,6 +753,33 @@ export function syncBuildings(
         }
       }
     }
+
+    // Make building interactive for hover tooltips
+    container.eventMode = 'static';
+    container.cursor = 'pointer';
+    // Hit area — a circle roughly matching the building size
+    const hitR = drawW * 0.6;
+    container.hitArea = { contains: (x: number, y: number) => x * x + y * y < hitR * hitR };
+    container.on('pointerover', (e: any) => {
+      const gp = e.global ?? e.data?.global;
+      if (gp) useTownStore.getState().setHoveredHouse(addr, { x: gp.x, y: gp.y });
+    });
+    container.on('pointermove', (e: any) => {
+      const gp = e.global ?? e.data?.global;
+      if (gp && useTownStore.getState().hoveredHouse === addr) {
+        useTownStore.getState().setHoveredHouse(addr, { x: gp.x, y: gp.y });
+      }
+    });
+    container.on('pointerout', () => {
+      if (useTownStore.getState().hoveredHouse === addr) {
+        // Delay clear so user can move mouse onto the HTML tooltip
+        hoverClearTimer = window.setTimeout(() => {
+          if (useTownStore.getState().hoveredHouse === addr) {
+            useTownStore.getState().setHoveredHouse(null);
+          }
+        }, 150);
+      }
+    });
 
     // Beams — all buildings connected to mainframe like a network
     const needsBeam = tier > 0;

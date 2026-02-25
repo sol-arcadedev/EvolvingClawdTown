@@ -37,8 +37,12 @@ export default function TownCanvas() {
 
       el.appendChild(app.canvas);
 
+      // Enable stage interactivity for building tooltips
+      app.stage.eventMode = 'static';
+
       // World container for camera transforms
       const world = new Container();
+      world.eventMode = 'static';
       app.stage.addChild(world);
 
       // Center world on screen
@@ -50,6 +54,7 @@ export default function TownCanvas() {
       const environmentLayer = new Container();
       const bgParticleLayer = new Container();
       const buildingLayer = new Container();
+      buildingLayer.eventMode = 'static';
       const beamLayer = new Container();
       const mainframeLayer = new Container();
       const fgParticleLayer = new Container();
@@ -113,6 +118,7 @@ export default function TownCanvas() {
         cleanupCamera();
         unsub();
         useTownStore.getState().setLocateHouse(null);
+        useTownStore.getState().setHoveredHouse(null);
       };
     })();
 

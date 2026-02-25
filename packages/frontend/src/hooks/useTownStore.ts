@@ -9,6 +9,8 @@ interface TownStore {
   consoleLines: string[];
   connected: boolean;
   selectedHouse: string | null;
+  hoveredHouse: string | null;
+  hoverPos: { x: number; y: number } | null;
   locateHouse: ((address: string) => void) | null;
 
   // Actions
@@ -19,6 +21,7 @@ interface TownStore {
   setConsoleLines: (lines: string[]) => void;
   setConnected: (connected: boolean) => void;
   setSelectedHouse: (address: string | null) => void;
+  setHoveredHouse: (address: string | null, pos?: { x: number; y: number }) => void;
   setLocateHouse: (fn: ((address: string) => void) | null) => void;
 }
 
@@ -28,6 +31,8 @@ export const useTownStore = create<TownStore>((set) => ({
   consoleLines: [],
   connected: false,
   selectedHouse: null,
+  hoveredHouse: null,
+  hoverPos: null,
   locateHouse: null,
 
   applySnapshot: (wallets, consoleLines) => {
@@ -65,5 +70,6 @@ export const useTownStore = create<TownStore>((set) => ({
 
   setConnected: (connected) => set({ connected }),
   setSelectedHouse: (address) => set({ selectedHouse: address }),
+  setHoveredHouse: (address, pos) => set({ hoveredHouse: address, hoverPos: pos ?? null }),
   setLocateHouse: (fn) => set({ locateHouse: fn }),
 }));

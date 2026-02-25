@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
+import { cancelHoverClear } from '../town/buildings';
 
 const TOKEN_CA = 'TokenMintAddress111111111111111111111111111';
 
@@ -9,6 +10,7 @@ export default function HUD() {
       <Header />
       <WalletSearch />
       <MainframeConsole />
+      <BuildingTooltip />
     </>
   );
 }
@@ -178,6 +180,167 @@ function MainframeConsole() {
           <ThinkingDots />
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── BUILDING TOOLTIP ──
+
+const TIER_NAMES = ['Empty Plot', 'Data Node', 'Signal Relay', 'Processing Core', 'Network Hub', 'Megastructure'];
+
+function formatBalance(balance: string): string {
+  const n = Number(balance);
+  if (isNaN(n) || n === 0) return '0';
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toFixed(0);
+}
+
+function formatHoldTime(firstSeenAt?: string): string {
+  if (!firstSeenAt) return '—';
+  const ms = Date.now() - new Date(firstSeenAt).getTime();
+  if (ms < 0) return '—';
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ${secs % 60}s`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+function BuildingTooltip() {
+  const hoveredHouse = useTownStore((s) => s.hoveredHouse);
+  const hoverPos = useTownStore((s) => s.hoverPos);
+  const wallets = useTownStore((s) => s.wallets);
+  const [copied, setCopied] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const pinnedPos = useRef<{ x: number; y: number } | null>(null);
+  const lastAddr = useRef<string | null>(null);
+
+  // Reset copied state when hovering a different building
+  if (hoveredHouse !== lastAddr.current) {
+    lastAddr.current = hoveredHouse;
+    if (copied) setCopied(false);
+    if (!hoveredHouse) {
+      setPinned(false);
+      pinnedPos.current = null;
+    }
+  }
+
+  const handleCopyAddr = useCallback(() => {
+    if (!hoveredHouse) return;
+    navigator.clipboard.writeText(hoveredHouse).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [hoveredHouse]);
+
+  const handleMouseEnter = useCallback(() => {
+    cancelHoverClear();
+    setPinned(true);
+    pinnedPos.current = hoverPos;
+  }, [hoverPos]);
+
+  const handleMouseLeave = useCallback(() => {
+    setPinned(false);
+    pinnedPos.current = null;
+    useTownStore.getState().setHoveredHouse(null);
+  }, []);
+
+  if (!hoveredHouse || !hoverPos) return null;
+
+  const w = wallets.get(hoveredHouse);
+  if (!w) return null;
+
+  const tier = Math.min(w.houseTier, 5);
+  const tierName = TIER_NAMES[tier] ?? 'Unknown';
+  const isBuilding = w.buildProgress < 100;
+
+  // Use pinned position if mouse is on the tooltip, otherwise follow cursor
+  const pos = pinned && pinnedPos.current ? pinnedPos.current : hoverPos;
+
+  // Position tooltip offset from cursor, clamped to viewport
+  const tooltipW = 240;
+  const tooltipH = 160;
+  let tx = pos.x + 16;
+  let ty = pos.y - tooltipH / 2;
+  if (tx + tooltipW > window.innerWidth - 8) tx = pos.x - tooltipW - 16;
+  if (ty < 8) ty = 8;
+  if (ty + tooltipH > window.innerHeight - 8) ty = window.innerHeight - tooltipH - 8;
+
+  const accentHue = w.colorHue;
+  const accentColor = `hsl(${accentHue}, 90%, 55%)`;
+  const accentDim = `hsl(${accentHue}, 60%, 25%)`;
+
+  return (
+    <div
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      style={{
+        ...styles.tooltip,
+        left: tx,
+        top: ty,
+        borderColor: accentDim,
+        pointerEvents: 'auto',
+      }}
+    >
+      {/* Header row */}
+      <div style={styles.tooltipHeader}>
+        <span style={{ ...styles.tooltipTier, color: accentColor, borderColor: accentDim }}>
+          T{tier}
+        </span>
+        <span style={styles.tooltipTierName}>{tierName}</span>
+        {isBuilding && <span style={styles.tooltipBuilding}>BUILDING</span>}
+      </div>
+
+      {/* Address with copy */}
+      <div style={styles.tooltipAddrRow}>
+        <span style={styles.tooltipAddr}>
+          {hoveredHouse.slice(0, 6)}...{hoveredHouse.slice(-4)}
+        </span>
+        <button onClick={handleCopyAddr} style={styles.tooltipCopyBtn} title="Copy full address">
+          {copied ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00ff88" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#556677" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          )}
+        </button>
+      </div>
+
+      {/* Stats grid */}
+      <div style={styles.tooltipGrid}>
+        <div style={styles.tooltipStat}>
+          <span style={styles.tooltipStatLabel}>Balance</span>
+          <span style={styles.tooltipStatValue}>{formatBalance(w.tokenBalance)}</span>
+        </div>
+        <div style={styles.tooltipStat}>
+          <span style={styles.tooltipStatLabel}>Holding</span>
+          <span style={styles.tooltipStatValue}>{formatHoldTime(w.firstSeenAt)}</span>
+        </div>
+        <div style={styles.tooltipStat}>
+          <span style={styles.tooltipStatLabel}>Build</span>
+          <span style={styles.tooltipStatValue}>{w.buildProgress.toFixed(0)}%</span>
+        </div>
+        <div style={styles.tooltipStat}>
+          <span style={styles.tooltipStatLabel}>Damage</span>
+          <span style={{
+            ...styles.tooltipStatValue,
+            color: w.damagePct > 50 ? '#ff4466' : w.damagePct > 20 ? '#ffaa44' : '#88ccaa',
+          }}>
+            {w.damagePct.toFixed(0)}%
+          </span>
+        </div>
+      </div>
+
+      {/* Speed boost indicator */}
+      {w.buildSpeedMult > 1 && (
+        <div style={styles.tooltipBoost}>
+          <span style={{ color: '#00ff88' }}>BOOST x{w.buildSpeedMult.toFixed(1)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -356,5 +519,101 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+
+  // Building tooltip
+  tooltip: {
+    position: 'absolute',
+    width: 240,
+    background: 'rgba(8,10,18,0.95)',
+    border: '1px solid rgba(0,255,245,0.3)',
+    borderRadius: 8,
+    padding: '10px 14px',
+    pointerEvents: 'none', // overridden to 'auto' when rendered
+    zIndex: 50,
+    backdropFilter: 'blur(8px)',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.6), 0 0 15px rgba(0,255,245,0.08)',
+  },
+  tooltipHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  tooltipTier: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '2px 6px',
+    border: '1px solid',
+    borderRadius: 3,
+  },
+  tooltipTierName: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#cceeff',
+    flex: 1,
+  },
+  tooltipBuilding: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 9,
+    fontWeight: 700,
+    color: '#ffaa44',
+    padding: '2px 5px',
+    background: 'rgba(255,170,68,0.15)',
+    borderRadius: 3,
+    letterSpacing: 1,
+  },
+  tooltipAddrRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  tooltipAddr: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 10,
+    color: '#556677',
+    letterSpacing: 0.5,
+  },
+  tooltipCopyBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '1px 3px',
+    display: 'flex',
+    alignItems: 'center',
+    opacity: 0.8,
+  },
+  tooltipGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '4px 12px',
+  },
+  tooltipStat: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '2px 0',
+  },
+  tooltipStatLabel: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 10,
+    color: '#556677',
+  },
+  tooltipStatValue: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#99ccdd',
+  },
+  tooltipBoost: {
+    marginTop: 6,
+    fontFamily: '"Courier New", monospace',
+    fontSize: 10,
+    fontWeight: 700,
+    textAlign: 'center' as const,
+    letterSpacing: 1,
   },
 };
