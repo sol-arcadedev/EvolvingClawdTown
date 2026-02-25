@@ -94,6 +94,8 @@ async function seedHoldersIfEmpty(db: DB) {
     const hue = colorHueFromAddress(ownerAddress);
     const plot = await db.getNextPlot();
     await db.createWallet(ownerAddress, balance, plot.x, plot.y, tier, hue);
+    // Existing holders are already established — mark buildings as fully built
+    await db.updateWallet(ownerAddress, { build_progress: 100 });
     created++;
     if (created % 50 === 0) log.info(`  Seeded ${created} / ${sorted.length} wallets...`);
   }
