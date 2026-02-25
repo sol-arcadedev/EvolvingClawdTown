@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
 import { cancelHoverClear } from '../town/buildings';
 
-const TOKEN_CA = 'TokenMintAddress111111111111111111111111111';
+const TOKEN_CA = 'D5NEb8nBdNvwBSUunJQQwqe2y1AHvnL4MDiUsp2Bpump';
 
 export default function HUD() {
   return (
