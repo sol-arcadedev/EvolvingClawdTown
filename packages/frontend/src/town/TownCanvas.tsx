@@ -94,8 +94,24 @@ export default function TownCanvas() {
       });
 
       // Subscribe to store changes (imperative, not React renders)
+      // Throttle to avoid perf issues during rapid drip-feed updates
+      let syncPending = false;
+      let syncTimer: ReturnType<typeof setTimeout> | null = null;
+      const SYNC_THROTTLE_MS = 100;
+
       const unsub = useTownStore.subscribe((state) => {
+        if (syncTimer) {
+          syncPending = true;
+          return;
+        }
         syncBuildings(buildingLayer, beamLayer, state.wallets);
+        syncTimer = setTimeout(() => {
+          syncTimer = null;
+          if (syncPending) {
+            syncPending = false;
+            syncBuildings(buildingLayer, beamLayer, useTownStore.getState().wallets);
+          }
+        }, SYNC_THROTTLE_MS);
       });
 
       // Also sync initial state

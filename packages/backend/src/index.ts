@@ -142,7 +142,8 @@ async function main() {
 
   // Express app
   const app = express();
-  app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+  app.use(cors({ origin: corsOrigin.includes(',') ? corsOrigin.split(',').map(s => s.trim()) : corsOrigin }));
   app.use(express.json());
 
   // Request logging
@@ -212,6 +213,7 @@ async function main() {
           buildSpeedMult: parseFloat(result.walletRow.build_speed_mult),
           boostExpiresAt: result.walletRow.boost_expires_at?.toISOString() ?? null,
           colorHue: result.walletRow.color_hue,
+          firstSeenAt: result.walletRow.first_seen_at?.toISOString() ?? null,
           isNew: result.isNew,
         })
       );

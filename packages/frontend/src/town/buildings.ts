@@ -781,8 +781,8 @@ export function syncBuildings(
       }
     });
 
-    // Beams — all buildings connected to mainframe like a network
-    const needsBeam = tier > 0;
+    // Beams — only tier 2+ to keep draw calls manageable at scale
+    const needsBeam = tier >= 2;
     const hasBeam = activeBeams.has(addr);
     if (needsBeam && !hasBeam) {
       const beamGfx = new Graphics();
@@ -865,6 +865,9 @@ function drawDashedPath(
 }
 
 export function updateBeams(frame: number) {
+  // Only update beams every 3rd frame to reduce GPU load
+  if (frame % 3 !== 0) return;
+
   for (const beam of activeBeams.values()) {
     const g = beam; g.clear();
     const tx = (beam as any).__targetX as number;
@@ -893,62 +896,48 @@ export function updateBeams(frame: number) {
     }
 
     // Steady trace line (always visible, like a PCB trace)
-    // Outer glow
     for (let i = 0; i < path.length - 1; i++) {
       g.moveTo(path[i].x, path[i].y);
       g.lineTo(path[i + 1].x, path[i + 1].y);
     }
     g.stroke({ color: COL_CYAN, alpha: 0.06, width: 8 });
-    // Core trace
     for (let i = 0; i < path.length - 1; i++) {
       g.moveTo(path[i].x, path[i].y);
       g.lineTo(path[i + 1].x, path[i + 1].y);
     }
     g.stroke({ color: COL_CYAN, alpha: 0.18, width: 2.5 });
 
-    // Animated dashed flow on top
-    drawDashedPath(g, path, frame, 12, 8, 2);
+    // Only tier 3+ get the expensive animated dashes and data packets
+    if (beamTier >= 3) {
+      drawDashedPath(g, path, frame, 12, 8, 2);
+    }
 
-    // Circuit node at corner bend
+    // Simpler corner node
     const corner = path[1];
-    g.circle(corner.x, corner.y, 5);
-    g.fill({ color: COL_CYAN, alpha: 0.1 });
     g.circle(corner.x, corner.y, 3);
     g.fill({ color: COL_CYAN, alpha: 0.25 });
-    g.circle(corner.x, corner.y, 1.5);
-    g.fill({ color: COL_CYAN, alpha: 0.5 });
 
-    // Circuit node at building endpoint
-    g.circle(tx, ty, 6);
-    g.fill({ color: COL_CYAN, alpha: 0.08 });
+    // Simpler endpoint node
     g.circle(tx, ty, 3.5);
     g.fill({ color: COL_CYAN, alpha: 0.2 });
-    g.circle(tx, ty, 1.8);
-    g.fill({ color: COL_CYAN, alpha: 0.5 });
 
-    // ── DATA PACKETS — glowing dots traveling from mainframe to building ──
-    // Compute total path length
-    let totalLen = 0;
-    const segLens: number[] = [];
-    for (let i = 0; i < path.length - 1; i++) {
-      const len = Math.sqrt(
-        (path[i + 1].x - path[i].x) ** 2 + (path[i + 1].y - path[i].y) ** 2,
-      );
-      segLens.push(len);
-      totalLen += len;
-    }
-    if (totalLen > 1) {
-      // Use position hash to stagger packets so they don't all sync up
-      const stagger = (beamTier * 37 + Math.abs(Math.round(tx) * 7 + Math.round(ty) * 13)) % 1000;
-      const packetCount = Math.min(1 + Math.floor(beamTier / 2), 2);
-      const speed = 18; // pixels per frame
-
-      for (let p = 0; p < packetCount; p++) {
-        // Each packet offset evenly along the loop cycle
-        const rawPos = frame * speed + stagger + (p * totalLen) / packetCount;
+    // Data packets only for tier 4+
+    if (beamTier >= 4) {
+      let totalLen = 0;
+      const segLens: number[] = [];
+      for (let i = 0; i < path.length - 1; i++) {
+        const len = Math.sqrt(
+          (path[i + 1].x - path[i].x) ** 2 + (path[i + 1].y - path[i].y) ** 2,
+        );
+        segLens.push(len);
+        totalLen += len;
+      }
+      if (totalLen > 1) {
+        const stagger = (beamTier * 37 + Math.abs(Math.round(tx) * 7 + Math.round(ty) * 13)) % 1000;
+        const speed = 18;
+        const rawPos = frame * speed + stagger;
         const cyclePos = ((rawPos % totalLen) + totalLen) % totalLen;
 
-        // Find position on path
         let remain = cyclePos;
         let px = path[0].x, py = path[0].y;
         for (let i = 0; i < segLens.length; i++) {
@@ -961,16 +950,8 @@ export function updateBeams(frame: number) {
           remain -= segLens[i];
         }
 
-        // Soft outer glow
-        g.circle(px, py, 14);
-        g.fill({ color: COL_CYAN, alpha: 0.08 });
-        // Mid glow
-        g.circle(px, py, 8);
-        g.fill({ color: COL_CYAN, alpha: 0.2 });
-        // Inner glow
         g.circle(px, py, 4);
         g.fill({ color: COL_CYAN, alpha: 0.5 });
-        // Bright white core
         g.circle(px, py, 2);
         g.fill({ color: 0xffffff, alpha: 0.9 });
       }
@@ -979,6 +960,8 @@ export function updateBeams(frame: number) {
 }
 
 export function updateBuildingLights(frame: number) {
+  // Only update lights every 4th frame — blink effect still looks fine
+  if (frame % 4 !== 0) return;
   for (const { gfx, lights } of blinkingLights.values()) {
     gfx.clear();
     for (const l of lights) {

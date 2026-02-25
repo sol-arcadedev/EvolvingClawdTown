@@ -40,7 +40,17 @@ function shuffle<T>(arr: T[]): T[] {
 
 const DRIP_DELAY_MS = 80;
 
+// Abort controller for cancelling in-flight drip broadcasts
+let activeDripAbort: AbortController | null = null;
+
 async function broadcastWalletsDrip(deps: AdminDeps, tokenMint: string) {
+  // Cancel any in-flight drip from a previous set-token/reseed
+  if (activeDripAbort) {
+    activeDripAbort.abort();
+  }
+  const abort = new AbortController();
+  activeDripAbort = abort;
+
   const wallets = await deps.db.getAllWallets();
 
   // Clear the board first
@@ -54,6 +64,10 @@ async function broadcastWalletsDrip(deps: AdminDeps, tokenMint: string) {
   // Drip wallets in one by one in random order
   const shuffled = shuffle([...wallets]);
   for (const w of shuffled) {
+    if (abort.signal.aborted) {
+      log.info('[ADMIN] Drip broadcast cancelled');
+      return;
+    }
     deps.wsServer.broadcastMessage({
       type: 'wallet_update',
       wallet: {
@@ -67,6 +81,7 @@ async function broadcastWalletsDrip(deps: AdminDeps, tokenMint: string) {
         buildSpeedMult: parseFloat(w.build_speed_mult),
         boostExpiresAt: w.boost_expires_at?.toISOString() ?? null,
         colorHue: w.color_hue,
+        firstSeenAt: w.first_seen_at?.toISOString() ?? null,
         isNew: true,
       },
     });
@@ -118,25 +133,31 @@ export function createAdminRouter(deps: AdminDeps): Router {
       // Update env
       process.env.TOKEN_MINT_ADDRESS = mint;
 
-      // Reset DB and re-seed
+      // Reset DB immediately
       await deps.db.resetAll();
-      await deps.seedHolders(true);
 
-      // Start new chain listener
-      const rpcUrl = process.env.HELIUS_RPC_URL;
-      if (rpcUrl) {
-        const newListener = new ChainListener(rpcUrl, mint, deps.db, deps.handleGameEvent);
-        await newListener.start();
-        deps.setChainListener(newListener);
-      }
+      // Respond immediately — seed + chain listener run in background
+      log.info(`[ADMIN] Token changed to ${mint}, seeding in background...`);
+      res.json({ success: true, message: `Token changed to ${mint}. Seeding holders in background...` });
 
-      log.info(`[ADMIN] Token changed to ${mint}`);
-      res.json({ success: true, message: `Token changed to ${mint}` });
+      // Background: seed, start chain listener, drip-feed
+      (async () => {
+        try {
+          await deps.seedHolders(true);
 
-      // Drip-feed wallets one by one (after response sent)
-      broadcastWalletsDrip(deps, mint).catch((err) =>
-        log.error('[ADMIN] Drip broadcast failed:', err)
-      );
+          const rpcUrl = process.env.HELIUS_RPC_URL;
+          if (rpcUrl) {
+            const newListener = new ChainListener(rpcUrl, mint, deps.db, deps.handleGameEvent);
+            await newListener.start();
+            deps.setChainListener(newListener);
+          }
+
+          log.info(`[ADMIN] Seed complete for ${mint}`);
+          await broadcastWalletsDrip(deps, mint);
+        } catch (err) {
+          log.error('[ADMIN] Background seed/listener failed:', err);
+        }
+      })();
     } catch (err) {
       log.error('[ADMIN] Set token failed:', err);
       res.status(500).json({ error: 'Failed to change token' });
