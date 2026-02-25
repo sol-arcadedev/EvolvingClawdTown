@@ -398,7 +398,7 @@ function BuildingTooltip() {
           <span style={styles.tooltipStatValue}>{formatBalance(w.tokenBalance)}</span>
         </div>
         <div style={styles.tooltipStat}>
-          <span style={styles.tooltipStatLabel}>Holding</span>
+          <span style={styles.tooltipStatLabel}>Hold Time</span>
           <span style={styles.tooltipStatValue}>{formatHoldTime(w.firstSeenAt)}</span>
         </div>
         <div style={styles.tooltipStat}>
