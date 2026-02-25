@@ -126,6 +126,7 @@ export class TownWebSocketServer {
             firstSeenAt: w.first_seen_at.toISOString(),
           })),
           consoleLines: this.consoleLines,
+          tokenMint: process.env.TOKEN_MINT_ADDRESS ?? '',
         };
         extWs.send(JSON.stringify(snapshot));
       } catch (err) {

@@ -26,7 +26,23 @@
       "Bash(psql:*)",
       "Bash(curl:*)",
       "Bash(taskkill:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(PGPASSWORD=claude_town_dev psql:*)",
+      "Bash(SIM_SPEED=3 npx tsx:*)",
+      "Bash(SIM_SPEED=5 SIM_HOLDERS=50 npx tsx:*)",
+      "Bash(node check-browser.cjs:*)",
+      "Bash(node -e:*)",
+      "Bash(ls:*)",
+      "Bash(npm run dev:*)",
+      "Bash(netstat:*)",
+      "Bash(SIM_SPEED=1 npx tsx:*)",
+      "Bash(SIM_SPEED=5 npx tsx:*)",
+      "Bash(tasklist:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs:*)",
+      "Bash(git status:*)"
     ]
   }
 }

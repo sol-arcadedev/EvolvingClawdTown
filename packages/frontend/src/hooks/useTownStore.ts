@@ -7,6 +7,7 @@ interface TownStore {
   wallets: Map<string, WalletState>;
   recentTrades: TradeEvent[];
   consoleLines: string[];
+  tokenMint: string;
   connected: boolean;
   reconnecting: boolean;
   selectedHouse: string | null;
@@ -15,7 +16,7 @@ interface TownStore {
   locateHouse: ((address: string) => void) | null;
 
   // Actions
-  applySnapshot: (wallets: WalletState[], consoleLines?: string[]) => void;
+  applySnapshot: (wallets: WalletState[], consoleLines?: string[], tokenMint?: string) => void;
   applyWalletUpdate: (update: WalletState) => void;
   addTradeEvent: (event: TradeEvent) => void;
   addConsoleLine: (line: string) => void;
@@ -31,6 +32,7 @@ export const useTownStore = create<TownStore>((set) => ({
   wallets: new Map(),
   recentTrades: [],
   consoleLines: [],
+  tokenMint: '',
   connected: false,
   reconnecting: false,
   selectedHouse: null,
@@ -38,13 +40,14 @@ export const useTownStore = create<TownStore>((set) => ({
   hoverPos: null,
   locateHouse: null,
 
-  applySnapshot: (wallets, consoleLines) => {
+  applySnapshot: (wallets, consoleLines, tokenMint) => {
     const map = new Map<string, WalletState>();
     for (const w of wallets) {
       map.set(w.address, w);
     }
     const update: Partial<TownStore> = { wallets: map };
     if (consoleLines) update.consoleLines = consoleLines.slice(-MAX_CONSOLE_LINES);
+    if (tokenMint) update.tokenMint = tokenMint;
     set(update);
   },
 

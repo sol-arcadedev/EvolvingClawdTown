@@ -32,7 +32,7 @@ export function useWebSocket(url: string) {
 
         switch (msg.type) {
           case 'snapshot':
-            useTownStore.getState().applySnapshot(msg.wallets, msg.consoleLines);
+            useTownStore.getState().applySnapshot(msg.wallets, msg.consoleLines, msg.tokenMint);
             break;
           case 'wallet_update':
             useTownStore.getState().applyWalletUpdate(msg.wallet);
