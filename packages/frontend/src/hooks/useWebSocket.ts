@@ -22,6 +22,7 @@ export function useWebSocket(url: string) {
     ws.onopen = () => {
       console.log('WebSocket connected');
       useTownStore.getState().setConnected(true);
+      useTownStore.getState().setReconnecting(false);
       retryMs.current = INITIAL_RETRY_MS;
     };
 
@@ -54,6 +55,7 @@ export function useWebSocket(url: string) {
     ws.onclose = () => {
       console.log(`WebSocket disconnected. Reconnecting in ${retryMs.current}ms...`);
       useTownStore.getState().setConnected(false);
+      useTownStore.getState().setReconnecting(true);
       retryTimeout.current = setTimeout(() => {
         retryMs.current = Math.min(retryMs.current * 2, MAX_RETRY_MS);
         connect();

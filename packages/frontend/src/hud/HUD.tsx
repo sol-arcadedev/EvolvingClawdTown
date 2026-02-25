@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
 import { cancelHoverClear } from '../town/buildings';
 
@@ -9,6 +9,7 @@ export default function HUD() {
     <>
       <Header />
       <WalletSearch />
+      <StatsBar />
       <MainframeConsole />
       <BuildingTooltip />
     </>
@@ -31,6 +32,7 @@ function Header() {
     <div style={styles.header}>
       <div style={styles.titleRow}>
         <span style={styles.title}>EVOLVING CLAWD TOWN</span>
+        <ConnectionStatus />
       </div>
       <div style={styles.caRow}>
         <span style={styles.caLabel}>CA:</span>
@@ -139,6 +141,82 @@ function WalletSearch() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── CONNECTION STATUS ──
+
+function ConnectionStatus() {
+  const connected = useTownStore((s) => s.connected);
+  const reconnecting = useTownStore((s) => s.reconnecting);
+  const [pulse, setPulse] = useState(true);
+
+  useEffect(() => {
+    const id = setInterval(() => setPulse((p) => !p), 800);
+    return () => clearInterval(id);
+  }, []);
+
+  let color: string;
+  let label: string;
+  if (connected) {
+    color = '#00ff88';
+    label = 'LIVE';
+  } else if (reconnecting) {
+    color = '#ffaa44';
+    label = 'RECONNECTING';
+  } else {
+    color = '#ff4466';
+    label = 'OFFLINE';
+  }
+
+  return (
+    <div style={styles.connectionStatus}>
+      <span style={{
+        width: 7,
+        height: 7,
+        borderRadius: '50%',
+        background: color,
+        display: 'inline-block',
+        opacity: connected || reconnecting ? (pulse ? 1 : 0.3) : 1,
+        boxShadow: `0 0 6px ${color}`,
+        transition: 'opacity 0.3s',
+      }} />
+      <span style={{ ...styles.connectionLabel, color }}>{label}</span>
+    </div>
+  );
+}
+
+// ── STATS BAR ──
+
+function StatsBar() {
+  const wallets = useTownStore((s) => s.wallets);
+
+  const stats = useMemo(() => {
+    let holders = 0;
+    let builders = 0;
+    for (const w of wallets.values()) {
+      if (Number(w.tokenBalance) > 0) {
+        holders++;
+        if (w.buildProgress < 100) builders++;
+      }
+    }
+    return { holders, builders };
+  }, [wallets]);
+
+  return (
+    <div style={styles.statsBar}>
+      <div style={styles.statItem}>
+        <span style={styles.statLabel}>HOLDERS</span>
+        <span style={styles.statValue}>{stats.holders}</span>
+      </div>
+      <span style={styles.statDivider}>|</span>
+      <div style={styles.statItem}>
+        <span style={styles.statLabel}>BUILDING</span>
+        <span style={{ ...styles.statValue, color: stats.builders > 0 ? '#ffaa44' : '#556677' }}>
+          {stats.builders}
+        </span>
+      </div>
     </div>
   );
 }
@@ -366,6 +444,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 12,
+    justifyContent: 'space-between',
   },
   title: {
     fontFamily: '"Courier New", monospace',
@@ -401,6 +480,61 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     opacity: 0.7,
+  },
+
+  // Connection status
+  connectionStatus: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  connectionLabel: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 1.5,
+  },
+
+  // Stats bar
+  statsBar: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '8px 14px',
+    background: 'rgba(10,14,20,0.92)',
+    border: '1px solid rgba(0,255,245,0.2)',
+    borderRadius: 8,
+    pointerEvents: 'auto',
+    zIndex: 10,
+    backdropFilter: 'blur(6px)',
+  },
+  statItem: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: 2,
+  },
+  statLabel: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 8,
+    fontWeight: 600,
+    color: '#556677',
+    letterSpacing: 1,
+  },
+  statValue: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#00fff5',
+    textShadow: '0 0 8px rgba(0,255,245,0.3)',
+  },
+  statDivider: {
+    color: 'rgba(0,255,245,0.15)',
+    fontSize: 16,
+    userSelect: 'none' as const,
   },
 
   // Search
