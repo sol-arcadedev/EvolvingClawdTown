@@ -62,13 +62,18 @@ export class DB {
 
   // Grid positions reserved for decorative city features (plazas, parks, billboards)
   private static readonly RESERVED_PLOTS = new Set([
-    '0,0', '-1,0', '0,-1', '-1,-1',     // Central 2×2 plaza
-    '5,0', '5,-1',                        // East park
-    '-6,0', '-6,-1',                      // West park
-    '0,-6', '-1,-6',                      // North plaza
-    '0,5', '-1,5',                        // South plaza
-    '3,3', '-4,3', '3,-4', '-4,-4',      // Diagonal landmarks
-    '7,4', '-8,4', '7,-5', '-8,-5',      // Outer landmarks
+    // Central 4×4 mainframe zone (plots -2,-2 to 1,1)
+    '-2,-2', '-1,-2', '0,-2', '1,-2',
+    '-2,-1', '-1,-1', '0,-1', '1,-1',
+    '-2,0',  '-1,0',  '0,0',  '1,0',
+    '-2,1',  '-1,1',  '0,1',  '1,1',
+    // Buffer ring around mainframe (1 plot gap)
+    '-3,-3', '-2,-3', '-1,-3', '0,-3', '1,-3', '2,-3',
+    '-3,-2', '2,-2',
+    '-3,-1', '2,-1',
+    '-3,0',  '2,0',
+    '-3,1',  '2,1',
+    '-3,2', '-2,2', '-1,2', '0,2', '1,2', '2,2',
   ]);
 
   private isReservedPlot(x: number, y: number): boolean {
@@ -295,6 +300,20 @@ export class DB {
       'SELECT COALESCE(SUM(token_balance), 0) AS total FROM wallets'
     );
     return BigInt(rows[0].total);
+  }
+
+  async resetAll(): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('TRUNCATE trade_events, plot_grid, wallets');
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async end(): Promise<void> {

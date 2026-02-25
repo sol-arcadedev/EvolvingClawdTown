@@ -14,6 +14,7 @@ import { getTier, walletPctOfSupply, colorHueFromAddress } from './game/rules';
 import { TickRunner } from './game/tick';
 import { ChainListener } from './chain/listener';
 import { createRestRouter } from './api/rest';
+import { createAdminRouter } from './api/admin';
 import { TownWebSocketServer } from './api/ws';
 import { log } from './utils/logger';
 
@@ -23,9 +24,9 @@ interface HeliusTokenAccount {
   amount: number;
 }
 
-async function seedHoldersIfEmpty(db: DB) {
+async function seedHolders(db: DB, force = false) {
   const stats = await db.getStats();
-  if (stats.totalHolders > 0) return;
+  if (!force && stats.totalHolders > 0) return;
 
   const apiKey = process.env.HELIUS_API_KEY;
   const mint = process.env.TOKEN_MINT_ADDRESS;
@@ -153,6 +154,8 @@ async function main() {
   });
 
   app.use(createRestRouter(db));
+
+  // Admin router (mounted after services are ready, see below)
 
   // HTTP server
   const server = http.createServer(app);
@@ -305,8 +308,20 @@ async function main() {
   }, TICK_INTERVAL);
   tickRunner.start();
 
+  // Mount admin router
+  app.use(createAdminRouter({
+    db,
+    wsServer,
+    getChainListener: () => chainListener,
+    setChainListener: (cl) => { chainListener = cl; },
+    tickRunner,
+    handleGameEvent,
+    seedHolders: (force) => seedHolders(db, force),
+    startedAt,
+  }));
+
   // Seed holders from Helius if DB is empty (first run with new token)
-  await seedHoldersIfEmpty(db);
+  await seedHolders(db);
 
   // Start server
   server.listen(PORT, () => {

@@ -2,8 +2,6 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
 import { cancelHoverClear } from '../town/buildings';
 
-const TOKEN_CA = 'D5NEb8nBdNvwBSUunJQQwqe2y1AHvnL4MDiUsp2Bpump';
-
 export default function HUD() {
   return (
     <>
@@ -20,13 +18,14 @@ export default function HUD() {
 
 function Header() {
   const [copied, setCopied] = useState(false);
+  const tokenMint = useTownStore((s) => s.tokenMint);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(TOKEN_CA).then(() => {
+    navigator.clipboard.writeText(tokenMint).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
-  }, []);
+  }, [tokenMint]);
 
   return (
     <div style={styles.header}>
@@ -36,7 +35,7 @@ function Header() {
       </div>
       <div style={styles.caRow}>
         <span style={styles.caLabel}>CA:</span>
-        <span style={styles.caAddress}>{TOKEN_CA.slice(0, 16)}...{TOKEN_CA.slice(-6)}</span>
+        <span style={styles.caAddress}>{tokenMint ? `${tokenMint.slice(0, 16)}...${tokenMint.slice(-6)}` : '...'}</span>
         <button onClick={handleCopy} style={styles.copyBtn} title="Copy address">
           {copied ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ff88" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
@@ -266,13 +265,17 @@ function MainframeConsole() {
 
 const TIER_NAMES = ['Empty Plot', 'Data Node', 'Signal Relay', 'Processing Core', 'Network Hub', 'Megastructure'];
 
+const TOKEN_DECIMALS = 6; // pump.fun tokens use 6 decimals
+
 function formatBalance(balance: string): string {
-  const n = Number(balance);
-  if (isNaN(n) || n === 0) return '0';
+  const raw = Number(balance);
+  if (isNaN(raw) || raw === 0) return '0';
+  const n = raw / 10 ** TOKEN_DECIMALS;
   if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
   if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-  return n.toFixed(0);
+  if (n >= 1) return n.toFixed(0);
+  return n.toFixed(2);
 }
 
 function formatHoldTime(firstSeenAt?: string): string {

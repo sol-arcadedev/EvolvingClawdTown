@@ -1,11 +1,23 @@
+import { useState, useEffect } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import TownCanvas from './town/TownCanvas';
 import HUD from './hud/HUD';
+import AdminPage from './admin/AdminPage';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
 export default function App() {
+  const [isAdmin, setIsAdmin] = useState(window.location.hash === '#admin');
+
+  useEffect(() => {
+    const onHashChange = () => setIsAdmin(window.location.hash === '#admin');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
   useWebSocket(`${WS_URL}/ws`);
+
+  if (isAdmin) return <AdminPage />;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
