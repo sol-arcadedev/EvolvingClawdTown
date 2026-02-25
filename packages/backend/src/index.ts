@@ -10,11 +10,96 @@ import { Pool } from 'pg';
 import Redis from 'ioredis';
 import { DB } from './db/queries';
 import { GameEngine, GameEvent } from './game/engine';
+import { getTier, walletPctOfSupply, colorHueFromAddress } from './game/rules';
 import { TickRunner } from './game/tick';
 import { ChainListener } from './chain/listener';
 import { createRestRouter } from './api/rest';
 import { TownWebSocketServer } from './api/ws';
 import { log } from './utils/logger';
+
+interface HeliusTokenAccount {
+  address: string;
+  owner: string;
+  amount: number;
+}
+
+async function seedHoldersIfEmpty(db: DB) {
+  const stats = await db.getStats();
+  if (stats.totalHolders > 0) return;
+
+  const apiKey = process.env.HELIUS_API_KEY;
+  const mint = process.env.TOKEN_MINT_ADDRESS;
+  if (!apiKey || !mint || mint === 'your_pump_fun_token_mint_pubkey') {
+    log.warn('Skipping holder seed — HELIUS_API_KEY or TOKEN_MINT_ADDRESS not configured');
+    return;
+  }
+
+  log.info('DB is empty — seeding holders from Helius...');
+
+  // Fetch all token accounts (paginated)
+  const url = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+  let page = 1;
+  let allAccounts: HeliusTokenAccount[] = [];
+
+  while (true) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: `holders-${page}`,
+        method: 'getTokenAccounts',
+        params: { mint, page, limit: 1000 },
+      }),
+    });
+
+    const data = (await response.json()) as any;
+    if (data.error) {
+      log.error('Helius API error during seed:', data.error);
+      return;
+    }
+
+    const accounts: HeliusTokenAccount[] = data.result?.token_accounts || [];
+    if (accounts.length === 0) break;
+
+    allAccounts = allAccounts.concat(accounts);
+    log.info(`  Page ${page}: ${accounts.length} accounts (total: ${allAccounts.length})`);
+    page++;
+
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  // Deduplicate by owner, sum balances, filter zero
+  const ownerMap = new Map<string, bigint>();
+  for (const h of allAccounts) {
+    const amount = BigInt(h.amount);
+    if (amount <= 0n) continue;
+    ownerMap.set(h.owner, (ownerMap.get(h.owner) || 0n) + amount);
+  }
+
+  let totalSupply = 0n;
+  for (const balance of ownerMap.values()) totalSupply += balance;
+
+  // Sort by balance descending — whales get central plots
+  const sorted = [...ownerMap.entries()].sort((a, b) =>
+    b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0
+  );
+
+  log.info(`Seeding ${sorted.length} holders (supply: ${totalSupply})...`);
+
+  let created = 0;
+  for (const [ownerAddress, balance] of sorted) {
+    const pct = walletPctOfSupply(balance, totalSupply);
+    const tier = getTier(pct);
+    const hue = colorHueFromAddress(ownerAddress);
+    const plot = await db.getNextPlot();
+    await db.createWallet(ownerAddress, balance, plot.x, plot.y, tier, hue);
+    created++;
+    if (created % 50 === 0) log.info(`  Seeded ${created} / ${sorted.length} wallets...`);
+  }
+
+  log.info(`Seed complete — created ${created} wallets`);
+}
 
 const startedAt = Date.now();
 
@@ -217,6 +302,9 @@ async function main() {
     }
   }, TICK_INTERVAL);
   tickRunner.start();
+
+  // Seed holders from Helius if DB is empty (first run with new token)
+  await seedHoldersIfEmpty(db);
 
   // Start server
   server.listen(PORT, () => {
