@@ -18,6 +18,7 @@ interface TownStore {
   // Actions
   applySnapshot: (wallets: WalletState[], consoleLines?: string[], tokenMint?: string) => void;
   applyWalletUpdate: (update: WalletState) => void;
+  applyWalletBatch: (updates: WalletState[]) => void;
   addTradeEvent: (event: TradeEvent) => void;
   addConsoleLine: (line: string) => void;
   setConsoleLines: (lines: string[]) => void;
@@ -55,6 +56,16 @@ export const useTownStore = create<TownStore>((set) => ({
     set((state) => {
       const newMap = new Map(state.wallets);
       newMap.set(update.address, update);
+      return { wallets: newMap };
+    });
+  },
+
+  applyWalletBatch: (updates) => {
+    set((state) => {
+      const newMap = new Map(state.wallets);
+      for (const w of updates) {
+        newMap.set(w.address, w);
+      }
       return { wallets: newMap };
     });
   },

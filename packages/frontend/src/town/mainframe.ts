@@ -5,7 +5,6 @@ import {
   COL_CYAN,
   COL_MAGENTA,
   COL_GREEN,
-  MAINFRAME_PULSE_SPEED,
 } from './constants';
 
 // Mainframe sits at world origin — centered in the 4x4 reserved zone
@@ -219,17 +218,22 @@ function drawBody(g: Graphics) {
 export interface MainframeState {
   container: Container;
   body: Graphics;
-  glow: Graphics;
-  animLayer: Graphics;
 }
 
 export function createMainframe(layer: Container): MainframeState {
   const container = new Container();
   container.position.set(MAINFRAME_X, MAINFRAME_Y);
+  container.eventMode = 'none';
   layer.addChild(container);
 
-  // Glow (behind body)
+  // Static glow (drawn once, not animated)
   const glow = new Graphics();
+  const u = SIZE / 16;
+  for (let ring = 5; ring >= 1; ring--) {
+    const r = SIZE * (0.3 + ring * 0.15);
+    glow.circle(0, 0, r);
+    glow.fill({ color: COL_CYAN, alpha: 0.04 });
+  }
   container.addChild(glow);
 
   // Static body
@@ -237,119 +241,7 @@ export function createMainframe(layer: Container): MainframeState {
   drawBody(body);
   container.addChild(body);
 
-  // Animated overlay (scan lines, rotating rings)
-  const animLayer = new Graphics();
-  container.addChild(animLayer);
-
-  return { container, body, glow, animLayer };
+  return { container, body };
 }
 
-export function updateMainframe(state: MainframeState, frame: number) {
-  const u = SIZE / 16;
-
-  // ── PULSING GLOW ──
-  const g = state.glow;
-  g.clear();
-
-  // Ground glow rings
-  for (let ring = 5; ring >= 1; ring--) {
-    const r = SIZE * (0.3 + ring * 0.15);
-    const alpha = 0.04 + 0.035 * Math.sin(frame * MAINFRAME_PULSE_SPEED + ring * 0.7);
-    g.circle(0, 0, r);
-    g.fill({ color: COL_CYAN, alpha });
-  }
-
-  // Outer pulse ring
-  const pulseR = SIZE * (0.85 + 0.04 * Math.sin(frame * MAINFRAME_PULSE_SPEED * 1.5));
-  g.circle(0, 0, pulseR);
-  g.stroke({ color: COL_CYAN, alpha: 0.06 + 0.03 * Math.sin(frame * MAINFRAME_PULSE_SPEED * 2), width: 1.5 });
-
-  // Second outer ring (offset phase)
-  const pulseR2 = SIZE * (0.92 + 0.03 * Math.sin(frame * MAINFRAME_PULSE_SPEED * 1.2 + 1));
-  g.circle(0, 0, pulseR2);
-  g.stroke({ color: COL_MAGENTA, alpha: 0.03 + 0.02 * Math.sin(frame * MAINFRAME_PULSE_SPEED * 1.8 + 2), width: 1 });
-
-  // ── ANIMATED LAYER ──
-  const a = state.animLayer;
-  a.clear();
-  a.scale.set(u);
-
-  // Scanning horizontal line sweeping up through the building
-  const scanZ = ((frame * 0.3) % 22);
-  const scanWidths = [
-    { minZ: 0, maxZ: 1.5, hw: 8 },
-    { minZ: 1.5, maxZ: 7.5, hw: 5.5 },
-    { minZ: 7.5, maxZ: 12.5, hw: 4 },
-    { minZ: 12.5, maxZ: 17.5, hw: 2.5 },
-    { minZ: 17.5, maxZ: 19.5, hw: 1.5 },
-  ];
-
-  let scanHW = 0;
-  for (const s of scanWidths) {
-    if (scanZ >= s.minZ && scanZ < s.maxZ) { scanHW = s.hw; break; }
-  }
-
-  if (scanHW > 0) {
-    // Scan line on right face
-    const [sl0, sl0y] = iso(scanHW, -scanHW, scanZ);
-    const [sl1, sl1y] = iso(scanHW, scanHW, scanZ);
-    a.moveTo(sl0, sl0y); a.lineTo(sl1, sl1y);
-    a.stroke({ color: COL_CYAN, alpha: 0.25, width: 1 / u });
-    // Glow
-    a.moveTo(sl0, sl0y); a.lineTo(sl1, sl1y);
-    a.stroke({ color: COL_CYAN, alpha: 0.06, width: 4 / u });
-
-    // Left face scan
-    const [sl2, sl2y] = iso(-scanHW, scanHW, scanZ);
-    const [sl3, sl3y] = iso(scanHW, scanHW, scanZ);
-    a.moveTo(sl2, sl2y); a.lineTo(sl3, sl3y);
-    a.stroke({ color: COL_CYAN, alpha: 0.2, width: 1 / u });
-  }
-
-  // Rotating data ring around mid-section
-  const ringZ = 10;
-  const ringR = 5;
-  const ringSegments = 12;
-  for (let i = 0; i < ringSegments; i++) {
-    const angle = (Math.PI * 2 * i) / ringSegments + frame * 0.015;
-    const nextAngle = (Math.PI * 2 * (i + 1)) / ringSegments + frame * 0.015;
-
-    if (i % 3 === 0) continue; // gaps in the ring
-
-    const [rx0, ry0] = iso(Math.cos(angle) * ringR, Math.sin(angle) * ringR, ringZ);
-    const [rx1, ry1] = iso(Math.cos(nextAngle) * ringR, Math.sin(nextAngle) * ringR, ringZ);
-    a.moveTo(rx0, ry0); a.lineTo(rx1, ry1);
-    a.stroke({ color: COL_CYAN, alpha: 0.3, width: 1 / u });
-  }
-
-  // Second ring (counter-rotating, magenta)
-  for (let i = 0; i < ringSegments; i++) {
-    const angle = (Math.PI * 2 * i) / ringSegments - frame * 0.01;
-    const nextAngle = (Math.PI * 2 * (i + 1)) / ringSegments - frame * 0.01;
-
-    if (i % 4 === 0) continue;
-
-    const [rx0, ry0] = iso(Math.cos(angle) * 6.5, Math.sin(angle) * 6.5, 5);
-    const [rx1, ry1] = iso(Math.cos(nextAngle) * 6.5, Math.sin(nextAngle) * 6.5, 5);
-    a.moveTo(rx0, ry0); a.lineTo(rx1, ry1);
-    a.stroke({ color: COL_MAGENTA, alpha: 0.15, width: 0.8 / u });
-  }
-
-  // Pulsing energy orb at spire top
-  const [orbX, orbY] = iso(0, 0, 25);
-  const orbPulse = 1 + 0.3 * Math.sin(frame * 0.05);
-  a.circle(orbX, orbY, (6 * orbPulse) / u);
-  a.fill({ color: COL_CYAN, alpha: 0.08 * orbPulse });
-  a.circle(orbX, orbY, (3 * orbPulse) / u);
-  a.fill({ color: COL_CYAN, alpha: 0.2 * orbPulse });
-
-  // Pylon tip blinking (alternating)
-  const pylons = [[-7, -7], [7, -7], [-7, 7], [7, 7]];
-  for (let i = 0; i < pylons.length; i++) {
-    const [px, py] = pylons[i];
-    const [tipX, tipY] = iso(px, py, 3.5);
-    const blinkAlpha = ((frame + i * 15) % 60) < 30 ? 0.8 : 0.2;
-    a.circle(tipX, tipY, 2 / u);
-    a.fill({ color: i % 2 === 0 ? COL_CYAN : COL_MAGENTA, alpha: blinkAlpha });
-  }
-}
+// updateMainframe removed — animations caused freezing due to Graphics.clear() overhead

@@ -16,7 +16,6 @@ const WORLD_MAX = PLOT_EXTENT * PLOT_STRIDE * PLOT_DISTANCE_MULT;
 const WORLD_SIZE = WORLD_MAX - WORLD_MIN;
 
 interface Particle {
-  gfx: Graphics;
   x: number;
   y: number;
   vx: number;
@@ -28,16 +27,15 @@ interface Particle {
   maxLife: number;
 }
 
+// Single shared Graphics per layer — avoids hundreds of individual Graphics objects
+const batchGraphics: Graphics[] = [];
 const particles: Particle[] = [];
 
 function randomWorldPos() {
   return WORLD_MIN + Math.random() * WORLD_SIZE;
 }
 
-function spawnParticle(layer: Container): Particle {
-  const gfx = new Graphics();
-  layer.addChild(gfx);
-
+function spawnParticle(): Particle {
   const color = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
   const size = 1 + Math.random() * 2.5;
   const alpha = 0.15 + Math.random() * 0.4;
@@ -48,7 +46,7 @@ function spawnParticle(layer: Container): Particle {
   const vx = (Math.random() - 0.5) * 0.3;
   const vy = -0.1 - Math.random() * 0.4;
 
-  return { gfx, x, y, vx, vy, size, alpha, color, life: 0, maxLife };
+  return { x, y, vx, vy, size, alpha, color, life: 0, maxLife };
 }
 
 function resetParticle(p: Particle) {
@@ -64,14 +62,26 @@ function resetParticle(p: Particle) {
 }
 
 export function createParticles(layer: Container) {
+  const g = new Graphics();
+  layer.addChild(g);
+  batchGraphics.push(g);
+
   for (let i = 0; i < PARTICLE_COUNT; i++) {
-    const p = spawnParticle(layer);
+    const p = spawnParticle();
     p.life = Math.random() * p.maxLife;
     particles.push(p);
   }
 }
 
 export function updateParticles() {
+  // Only update every 3rd call to reduce draw calls
+  // (Particles move slowly so this is not noticeable)
+  for (const g of batchGraphics) g.clear();
+
+  // Use first batch graphics for all particles
+  const g = batchGraphics[0];
+  if (!g) return;
+
   for (const p of particles) {
     p.life++;
     p.x += p.vx;
@@ -82,15 +92,8 @@ export function updateParticles() {
     if (lifeRatio < 0.1) fadeAlpha *= lifeRatio / 0.1;
     else if (lifeRatio > 0.8) fadeAlpha *= (1 - lifeRatio) / 0.2;
 
-    const g = p.gfx;
-    g.clear();
     g.circle(p.x, p.y, p.size);
     g.fill({ color: p.color, alpha: fadeAlpha });
-
-    if (p.size > 1.5) {
-      g.circle(p.x, p.y, p.size * 2.5);
-      g.fill({ color: p.color, alpha: fadeAlpha * 0.15 });
-    }
 
     if (p.life >= p.maxLife) {
       resetParticle(p);

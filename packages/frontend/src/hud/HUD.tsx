@@ -1,6 +1,11 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTownStore } from '../hooks/useTownStore';
-import { cancelHoverClear } from '../town/buildings';
+
+function cancelHoverClear() {
+  if (typeof (window as any).__cancelHoverClear === 'function') {
+    (window as any).__cancelHoverClear();
+  }
+}
 
 export default function HUD() {
   return (
@@ -56,7 +61,7 @@ function WalletSearch() {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const wallets = useTownStore((s) => s.wallets);
+  // Read wallets imperatively — no subscription, no re-renders from wallet updates
   const locateHouse = useTownStore((s) => s.locateHouse);
 
   const handleSearch = useCallback(
@@ -69,6 +74,7 @@ function WalletSearch() {
       }
       const q = value.toLowerCase();
       const matches: { address: string; tier: number }[] = [];
+      const wallets = useTownStore.getState().wallets;
       for (const [addr, w] of wallets) {
         if (addr.toLowerCase().includes(q)) {
           matches.push({ address: addr, tier: w.houseTier });
@@ -78,7 +84,7 @@ function WalletSearch() {
       setResults(matches);
       setOpen(matches.length > 0);
     },
-    [wallets],
+    [],
   );
 
   const handleSelect = useCallback(
@@ -189,19 +195,21 @@ function ConnectionStatus() {
 // ── STATS BAR ──
 
 function StatsBar() {
-  const wallets = useTownStore((s) => s.wallets);
-
-  const stats = useMemo(() => {
-    let holders = 0;
-    let builders = 0;
-    for (const w of wallets.values()) {
-      if (Number(w.tokenBalance) > 0) {
-        holders++;
-        if (w.buildProgress < 100) builders++;
+  // Compute stats inside selector; custom equality prevents re-render when counts unchanged
+  const stats = useTownStore(
+    (s) => {
+      let holders = 0;
+      let builders = 0;
+      for (const w of s.wallets.values()) {
+        if (Number(w.tokenBalance) > 0) {
+          holders++;
+          if (w.buildProgress < 100) builders++;
+        }
       }
-    }
-    return { holders, builders };
-  }, [wallets]);
+      return { holders, builders };
+    },
+    (a, b) => a.holders === b.holders && a.builders === b.builders,
+  );
 
   return (
     <div style={styles.statsBar}>
@@ -295,7 +303,8 @@ function formatHoldTime(firstSeenAt?: string): string {
 function BuildingTooltip() {
   const hoveredHouse = useTownStore((s) => s.hoveredHouse);
   const hoverPos = useTownStore((s) => s.hoverPos);
-  const wallets = useTownStore((s) => s.wallets);
+  // Only subscribe to the specific hovered wallet, not the entire Map
+  const w = useTownStore((s) => s.hoveredHouse ? s.wallets.get(s.hoveredHouse) ?? null : null);
   const [copied, setCopied] = useState(false);
   const [pinned, setPinned] = useState(false);
   const pinnedPos = useRef<{ x: number; y: number } | null>(null);
@@ -331,10 +340,7 @@ function BuildingTooltip() {
     useTownStore.getState().setHoveredHouse(null);
   }, []);
 
-  if (!hoveredHouse || !hoverPos) return null;
-
-  const w = wallets.get(hoveredHouse);
-  if (!w) return null;
+  if (!hoveredHouse || !hoverPos || !w) return null;
 
   const tier = Math.min(w.houseTier, 5);
   const tierName = TIER_NAMES[tier] ?? 'Unknown';

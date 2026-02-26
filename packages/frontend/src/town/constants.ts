@@ -54,7 +54,7 @@ export const MAINFRAME_PLOTS = [
 ] as const;
 
 // Effects
-export const PARTICLE_COUNT = 40;
+export const PARTICLE_COUNT = 15;
 export const PARTICLE_COLORS = [0x00fff5, 0xff00c8, 0x00ff88];
 
 // Console messages
