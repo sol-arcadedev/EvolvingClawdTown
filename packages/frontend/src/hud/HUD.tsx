@@ -67,6 +67,11 @@ function Header() {
   return (
     <div style={styles.header}>
       <div style={styles.titleRow}>
+        <img
+          src="/EvolvingClawdTown_TokenImage_1.png"
+          alt="ClawdTown"
+          style={styles.tokenLogo}
+        />
         <span style={styles.title}>EVOLVING CLAWD TOWN</span>
       </div>
       <div style={styles.caRow}>
@@ -537,6 +542,14 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 12,
     justifyContent: 'space-between',
+  },
+  tokenLogo: {
+    width: 36,
+    height: 36,
+    borderRadius: '50%',
+    border: '2px solid rgba(0,255,245,0.3)',
+    boxShadow: '0 0 10px rgba(0,255,245,0.2)',
+    flexShrink: 0,
   },
   title: {
     fontFamily: '"Courier New", monospace',
