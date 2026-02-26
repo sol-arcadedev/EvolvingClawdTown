@@ -532,31 +532,14 @@ export default function TownCanvas() {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
-    // ── FPS COUNTER ──
-    const fpsDiv = document.createElement('div');
-    fpsDiv.style.cssText =
-      'position:fixed;bottom:50px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);' +
-      'color:#00ff88;font:bold 13px monospace;padding:6px 14px;border:1px solid #00ff88;' +
-      'border-radius:4px;z-index:9999;pointer-events:none;';
-    document.body.appendChild(fpsDiv);
-    let frameCount = 0, drawCount = 0, lastFpsTime = performance.now(), fps = 0, dps = 0;
-
     // ── RENDER LOOP ──
     let rafId: number;
     function loop() {
       rafId = requestAnimationFrame(loop);
-      frameCount++;
-      const now = performance.now();
-      if (now - lastFpsTime >= 1000) {
-        fps = frameCount; dps = drawCount;
-        frameCount = 0; drawCount = 0;
-        lastFpsTime = now;
-        fpsDiv.textContent = `FPS: ${fps} | Draws: ${dps} | Bldgs: ${sortedBlds.length}`;
-      }
       syncFromStore();
       frame++;
       dirty = true; // particles + data packets always animate
-      if (dirty) { dirty = false; drawCount++; draw(); }
+      if (dirty) { dirty = false; draw(); }
     }
     rafId = requestAnimationFrame(loop);
 
@@ -575,7 +558,6 @@ export default function TownCanvas() {
       useTownStore.getState().setLocateHouse(null);
       useTownStore.getState().setHoveredHouse(null);
       delete (window as any).__cancelHoverClear;
-      fpsDiv.remove();
     };
   }, []);
 
