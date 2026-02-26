@@ -187,6 +187,10 @@ export default function TownCanvas() {
     let dragging = false, lastPX = 0, lastPY = 0;
     let dirty = true;
 
+    // Interaction tracking — skip expensive animations during pan/zoom
+    let lastInteractTime = 0;
+    const INTERACT_COOLDOWN = 200; // ms after last drag/zoom before resuming animations
+
     // Persistent building structures (Step 2: incremental sync)
     const bldMap = new Map<string, Bld>();
     let sortedBlds: Bld[] = [];
@@ -217,6 +221,7 @@ export default function TownCanvas() {
       camX += e.clientX - lastPX;
       camY += e.clientY - lastPY;
       lastPX = e.clientX; lastPY = e.clientY;
+      lastInteractTime = performance.now();
       dirty = true;
     };
     const onPointerUp = () => { dragging = false; canvas.style.cursor = 'grab'; };
@@ -227,6 +232,7 @@ export default function TownCanvas() {
       const oldS = camScale;
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       camScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, camScale * factor));
+      lastInteractTime = performance.now();
       const cx = canvas.clientWidth / 2 + camX;
       const cy = canvas.clientHeight / 2 + camY;
       const wx = (mx - cx) / oldS, wy = (my - cy) / oldS;
@@ -414,28 +420,29 @@ export default function TownCanvas() {
       const vr = (w - cx) * inv + 300;
       const vb = (h - cy) * inv + 300;
 
+      // Should we draw animations? Skip during active pan/zoom for smooth 60fps
+      const showAnim = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
+
       // ── BEAM TRACES (ground-level, behind everything) ──
-      // Build L-shaped paths for all tier>0 buildings, batch into one path
+      // Only include beams to buildings whose endpoint is in/near the viewport
       ctx.beginPath();
       for (let i = 0; i < sortedBlds.length; i++) {
         const b = sortedBlds[i];
         if (b.tier === 0) continue;
+        // Viewport-cull: skip beams to off-screen buildings
+        if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
         if (Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY)) {
           ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(b.wx, MF_WY); ctx.lineTo(b.wx, b.wy);
         } else {
           ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(MF_WX, b.wy); ctx.lineTo(b.wx, b.wy);
         }
       }
-      // Outer glow
       ctx.strokeStyle = 'rgba(0,255,245,0.06)';
       ctx.lineWidth = 8;
       ctx.stroke();
-      // Core trace (reuse same path)
       ctx.strokeStyle = 'rgba(0,255,245,0.18)';
       ctx.lineWidth = 2.5;
       ctx.stroke();
-
-      // (beam nodes removed — arc() calls were too expensive)
 
       // ── MAINFRAME + BUILDINGS (depth order) ──
       const mf = getMainframeSprite();
@@ -486,8 +493,8 @@ export default function TownCanvas() {
           ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW * (b.bp / 100), barH);
         }
 
-        // Blinking lights (1 drawImage per light instead of 3 arc+fill)
-        if (b.lights.length > 0) {
+        // Blinking lights — only when not panning/zooming
+        if (showAnim && b.lights.length > 0) {
           const lSpr = getLightSprite(b.hue);
           for (let li = 0; li < b.lights.length; li++) {
             const l = b.lights[li];
@@ -505,68 +512,69 @@ export default function TownCanvas() {
         ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
       }
 
-      // ── DATA PACKETS (1 per beam, fillRect instead of arc) ──
-      const pSpeed = 18;
-      const pkts: number[] = []; // flat [x, y, x, y, ...]
+      // ── DATA PACKETS + PARTICLES — only when idle ──
+      if (showAnim) {
+        const pSpeed = 18;
+        const pkts: number[] = [];
 
-      for (let i = 0; i < sortedBlds.length; i++) {
-        const b = sortedBlds[i];
-        if (b.tier === 0) continue;
-        const ddx = Math.abs(b.wx - MF_WX), ddy = Math.abs(b.wy - MF_WY);
-        const horiz = ddx >= ddy;
-        const seg1 = horiz ? ddx : ddy;
-        const seg2 = horiz ? ddy : ddx;
-        const total = seg1 + seg2;
-        if (total < 1) continue;
-        const mid1x = horiz ? b.wx : MF_WX;
-        const mid1y = horiz ? MF_WY : b.wy;
-        const stagger = (b.tier * 37 + Math.abs(Math.round(b.wx) * 7 + Math.round(b.wy) * 13)) % 1000;
-        const raw = frame * pSpeed + stagger;
-        const cyc = ((raw % total) + total) % total;
-        let px: number, py: number;
-        if (cyc <= seg1) {
-          const t = cyc / seg1;
-          px = MF_WX + (mid1x - MF_WX) * t;
-          py = MF_WY + (mid1y - MF_WY) * t;
-        } else {
-          const t = (cyc - seg1) / seg2;
-          px = mid1x + (b.wx - mid1x) * t;
-          py = mid1y + (b.wy - mid1y) * t;
-        }
-        pkts.push(px, py);
-      }
-
-      // Glow layer (1 fillRect per packet)
-      ctx.fillStyle = 'rgba(0,255,245,0.12)';
-      for (let j = 0; j < pkts.length; j += 2) {
-        ctx.fillRect(pkts[j] - 6, pkts[j + 1] - 6, 12, 12);
-      }
-      // Core layer (1 fillRect per packet)
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      for (let j = 0; j < pkts.length; j += 2) {
-        ctx.fillRect(pkts[j] - 2, pkts[j + 1] - 4, 4, 4);
-      }
-
-      // ── PARTICLES (world-space, fillRect for speed) ──
-      for (const p of particles) {
-        p.life++;
-        p.x += p.vx;
-        p.y += p.vy;
-
-        const lifeRatio = p.life / p.maxLife;
-        let fadeAlpha = p.alpha;
-        if (lifeRatio < 0.1) fadeAlpha *= lifeRatio / 0.1;
-        else if (lifeRatio > 0.8) fadeAlpha *= (1 - lifeRatio) / 0.2;
-
-        if (fadeAlpha > 0.01) {
-          ctx.globalAlpha = fadeAlpha;
-          ctx.fillStyle = p.color;
-          ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+        for (let i = 0; i < sortedBlds.length; i++) {
+          const b = sortedBlds[i];
+          if (b.tier === 0) continue;
+          if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
+          const ddx = Math.abs(b.wx - MF_WX), ddy = Math.abs(b.wy - MF_WY);
+          const horiz = ddx >= ddy;
+          const seg1 = horiz ? ddx : ddy;
+          const seg2 = horiz ? ddy : ddx;
+          const total = seg1 + seg2;
+          if (total < 1) continue;
+          const mid1x = horiz ? b.wx : MF_WX;
+          const mid1y = horiz ? MF_WY : b.wy;
+          const stagger = (b.tier * 37 + Math.abs(Math.round(b.wx) * 7 + Math.round(b.wy) * 13)) % 1000;
+          const raw = frame * pSpeed + stagger;
+          const cyc = ((raw % total) + total) % total;
+          let px: number, py: number;
+          if (cyc <= seg1) {
+            const t = cyc / seg1;
+            px = MF_WX + (mid1x - MF_WX) * t;
+            py = MF_WY + (mid1y - MF_WY) * t;
+          } else {
+            const t = (cyc - seg1) / seg2;
+            px = mid1x + (b.wx - mid1x) * t;
+            py = mid1y + (b.wy - mid1y) * t;
+          }
+          pkts.push(px, py);
         }
 
-        if (p.life >= p.maxLife) resetParticle(p);
+        ctx.fillStyle = 'rgba(0,255,245,0.12)';
+        for (let j = 0; j < pkts.length; j += 2) {
+          ctx.fillRect(pkts[j] - 6, pkts[j + 1] - 6, 12, 12);
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        for (let j = 0; j < pkts.length; j += 2) {
+          ctx.fillRect(pkts[j] - 2, pkts[j + 1] - 4, 4, 4);
+        }
+
+        // Particles
+        for (const p of particles) {
+          p.life++;
+          p.x += p.vx;
+          p.y += p.vy;
+
+          const lifeRatio = p.life / p.maxLife;
+          let fadeAlpha = p.alpha;
+          if (lifeRatio < 0.1) fadeAlpha *= lifeRatio / 0.1;
+          else if (lifeRatio > 0.8) fadeAlpha *= (1 - lifeRatio) / 0.2;
+
+          if (fadeAlpha > 0.01) {
+            ctx.globalAlpha = fadeAlpha;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+          }
+
+          if (p.life >= p.maxLife) resetParticle(p);
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
 
       // Reset transform
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -578,7 +586,9 @@ export default function TownCanvas() {
       rafId = requestAnimationFrame(loop);
       syncFromStore();
       frame++;
-      dirty = true; // particles + data packets always animate
+      // Only force redraw every frame when animations are visible (not during interaction)
+      const idle = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
+      if (idle) dirty = true;
       if (dirty) { dirty = false; draw(); }
     }
     rafId = requestAnimationFrame(loop);
