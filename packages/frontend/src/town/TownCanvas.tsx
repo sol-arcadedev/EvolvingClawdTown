@@ -211,20 +211,39 @@ export default function TownCanvas() {
     window.addEventListener('resize', resize);
 
     // ── CAMERA ──
+    // Panning uses CSS transform (GPU-composited) — zero canvas redraws during drag
+    let dragOffsetX = 0, dragOffsetY = 0;
+
     const onPointerDown = (e: PointerEvent) => {
       dragging = true; lastPX = e.clientX; lastPY = e.clientY;
+      dragOffsetX = 0; dragOffsetY = 0;
       canvas.style.cursor = 'grabbing';
+      canvas.style.willChange = 'transform';
       if (hoverClearTimer) { clearTimeout(hoverClearTimer); hoverClearTimer = null; }
     };
     const onPointerMove = (e: PointerEvent) => {
       if (!dragging) return;
-      camX += e.clientX - lastPX;
-      camY += e.clientY - lastPY;
+      dragOffsetX += e.clientX - lastPX;
+      dragOffsetY += e.clientY - lastPY;
       lastPX = e.clientX; lastPY = e.clientY;
       lastInteractTime = performance.now();
-      dirty = true;
+      // GPU-composited translation — no canvas redraw
+      canvas.style.transform = `translate(${dragOffsetX}px,${dragOffsetY}px)`;
     };
-    const onPointerUp = () => { dragging = false; canvas.style.cursor = 'grab'; };
+    const onPointerUp = () => {
+      if (dragging) {
+        // Apply accumulated offset to camera, reset CSS transform, do one clean redraw
+        camX += dragOffsetX;
+        camY += dragOffsetY;
+        canvas.style.transform = '';
+        canvas.style.willChange = '';
+        dragOffsetX = 0; dragOffsetY = 0;
+        dirty = true;
+      }
+      dragging = false; canvas.style.cursor = 'grab';
+    };
+    // Zoom: throttle redraws to ~30fps
+    let lastZoomDraw = 0;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
@@ -238,7 +257,12 @@ export default function TownCanvas() {
       const wx = (mx - cx) / oldS, wy = (my - cy) / oldS;
       camX = mx - canvas.clientWidth / 2 - wx * camScale;
       camY = my - canvas.clientHeight / 2 - wy * camScale;
-      dirty = true;
+      // Throttle to ~30fps during rapid zoom
+      const now = performance.now();
+      if (now - lastZoomDraw > 33) {
+        dirty = true;
+        lastZoomDraw = now;
+      }
     };
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
@@ -424,25 +448,26 @@ export default function TownCanvas() {
       const showAnim = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
 
       // ── BEAM TRACES (ground-level, behind everything) ──
-      // Only include beams to buildings whose endpoint is in/near the viewport
-      ctx.beginPath();
-      for (let i = 0; i < sortedBlds.length; i++) {
-        const b = sortedBlds[i];
-        if (b.tier === 0) continue;
-        // Viewport-cull: skip beams to off-screen buildings
-        if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
-        if (Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY)) {
-          ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(b.wx, MF_WY); ctx.lineTo(b.wx, b.wy);
-        } else {
-          ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(MF_WX, b.wy); ctx.lineTo(b.wx, b.wy);
+      // Skip during zoom for faster redraws; always show when idle
+      if (showAnim) {
+        ctx.beginPath();
+        for (let i = 0; i < sortedBlds.length; i++) {
+          const b = sortedBlds[i];
+          if (b.tier === 0) continue;
+          if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
+          if (Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY)) {
+            ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(b.wx, MF_WY); ctx.lineTo(b.wx, b.wy);
+          } else {
+            ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(MF_WX, b.wy); ctx.lineTo(b.wx, b.wy);
+          }
         }
+        ctx.strokeStyle = 'rgba(0,255,245,0.06)';
+        ctx.lineWidth = 8;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,255,245,0.18)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
       }
-      ctx.strokeStyle = 'rgba(0,255,245,0.06)';
-      ctx.lineWidth = 8;
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(0,255,245,0.18)';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
 
       // ── MAINFRAME + BUILDINGS (depth order) ──
       const mf = getMainframeSprite();
@@ -464,14 +489,10 @@ export default function TownCanvas() {
         if (needAlpha) ctx.globalAlpha = b.bp < 100 ? 0.35 : 0.6;
 
         if (b.tier === 0) {
-          ctx.beginPath();
-          ctx.arc(b.wx, b.wy, 5, 0, P_TAU);
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.3);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(b.wx, b.wy, 2.5, 0, P_TAU);
+          ctx.fillRect(b.wx - 5, b.wy - 5, 10, 10);
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.6);
-          ctx.fill();
+          ctx.fillRect(b.wx - 2.5, b.wy - 2.5, 5, 5);
         } else {
           const { src, bbox, u } = getBuildingSprite(b.tier, b.hue);
           ctx.drawImage(
