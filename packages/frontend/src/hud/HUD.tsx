@@ -11,11 +11,43 @@ export default function HUD() {
   return (
     <>
       <Header />
+      <AboutLabel />
       <WalletSearch />
       <StatsBar />
       <MainframeConsole />
       <BuildingTooltip />
     </>
+  );
+}
+
+// ── ABOUT LABEL ──
+
+function AboutLabel() {
+  const [show, setShow] = useState(false);
+
+  return (
+    <div style={styles.aboutContainer}>
+      <span
+        style={styles.aboutLabel}
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+      >
+        ABOUT $CLAWDTOWN
+      </span>
+      {show && (
+        <div style={styles.aboutTooltip}>
+          <p style={styles.aboutText}>
+            <strong style={{ color: '#00fff5' }}>$CLAWDTOWN</strong> is a living,
+            evolving town built at the intersection of art and Claude AI. Every token
+            holder is represented as a building — their trading activity, loyalty, and
+            balance shape what gets built. The entire town is autonomously managed by
+            Clawd: an AI agent that assigns plots, promotes buildings, rewards diamond
+            hands, and punishes paper hands in real time. The result is an ever-changing
+            on-chain artwork that grows and evolves with its community.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -443,6 +475,49 @@ function BuildingTooltip() {
 // ── STYLES ──
 
 const styles: Record<string, React.CSSProperties> = {
+  // About
+  aboutContainer: {
+    position: 'absolute',
+    top: 14,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 15,
+    pointerEvents: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  aboutLabel: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#00fff5',
+    letterSpacing: 2,
+    cursor: 'default',
+    padding: '4px 12px',
+    border: '1px solid rgba(0,255,245,0.3)',
+    borderRadius: 4,
+    background: 'rgba(10,14,20,0.85)',
+    textShadow: '0 0 8px rgba(0,255,245,0.3)',
+  },
+  aboutTooltip: {
+    marginTop: 8,
+    width: 340,
+    padding: '14px 16px',
+    background: 'rgba(8,10,18,0.95)',
+    border: '1px solid rgba(0,255,245,0.3)',
+    borderRadius: 8,
+    backdropFilter: 'blur(8px)',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.6), 0 0 15px rgba(0,255,245,0.08)',
+  },
+  aboutText: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 12,
+    lineHeight: '18px',
+    color: '#99bbcc',
+    margin: 0,
+  },
+
   // Header
   header: {
     position: 'absolute',
