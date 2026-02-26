@@ -7,6 +7,25 @@ const MAX_CONSOLE_LINES = 14;
 let _changedAddresses = new Set<string>();
 let _snapshotDirty = false;
 
+// ── Trade activity tracking (for blinking lights) ────────
+const _tradeActivity = new Map<string, number>(); // address → timestamp (ms)
+
+/** Check if a wallet traded recently. duration = how long lights stay active (ms). */
+export function isRecentlyActive(address: string, duration = 5000): boolean {
+  const t = _tradeActivity.get(address);
+  if (!t) return false;
+  return Date.now() - t < duration;
+}
+
+/** Get the fade factor (1 = just traded, 0 = expired). */
+export function getActivityFade(address: string, duration = 5000): number {
+  const t = _tradeActivity.get(address);
+  if (!t) return 0;
+  const elapsed = Date.now() - t;
+  if (elapsed >= duration) return 0;
+  return 1 - elapsed / duration;
+}
+
 /** Read and clear pending changes. Renderer calls this once per frame. */
 export function consumeChangedAddresses(): { snapshot: boolean; changed: Set<string> } {
   if (_snapshotDirty) {
@@ -94,6 +113,7 @@ export const useTownStore = create<TownStore>((set) => ({
   },
 
   addTradeEvent: (event) => {
+    _tradeActivity.set(event.walletAddress, Date.now());
     set((state) => ({
       recentTrades: [event, ...state.recentTrades].slice(0, 50),
     }));

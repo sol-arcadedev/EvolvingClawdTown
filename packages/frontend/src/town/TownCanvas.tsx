@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useTownStore, consumeChangedAddresses } from '../hooks/useTownStore';
+import { useTownStore, consumeChangedAddresses, getActivityFade } from '../hooks/useTownStore';
 import type { WalletState } from '../types';
 import {
   COL_BG,
@@ -514,18 +514,21 @@ export default function TownCanvas() {
           ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW * (b.bp / 100), barH);
         }
 
-        // Blinking lights — only when not panning/zooming
+        // Blinking lights — only when wallet recently traded, fades out over 5s
         if (showAnim && b.lights.length > 0) {
-          const lSpr = getLightSprite(b.hue);
-          for (let li = 0; li < b.lights.length; li++) {
-            const l = b.lights[li];
-            const pulse = Math.sin(frame * l.speed + l.phase);
-            if (pulse < 0) continue;
-            const hw = l.size * 2.5;
-            ctx.globalAlpha = pulse * 0.9;
-            ctx.drawImage(lSpr, b.wx + l.ox - hw, b.wy + l.oy - hw, hw * 2, hw * 2);
+          const fade = getActivityFade(b.addr, 5000);
+          if (fade > 0) {
+            const lSpr = getLightSprite(b.hue);
+            for (let li = 0; li < b.lights.length; li++) {
+              const l = b.lights[li];
+              const pulse = Math.sin(frame * l.speed + l.phase);
+              if (pulse < 0) continue;
+              const hw = l.size * 2.5;
+              ctx.globalAlpha = pulse * 0.9 * fade;
+              ctx.drawImage(lSpr, b.wx + l.ox - hw, b.wy + l.oy - hw, hw * 2, hw * 2);
+            }
+            ctx.globalAlpha = 1;
           }
-          ctx.globalAlpha = 1;
         }
       }
 
