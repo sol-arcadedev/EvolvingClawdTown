@@ -1,20 +1,27 @@
 import { useEffect, useRef } from 'react';
-import { useTownStore } from '../hooks/useTownStore';
+import { useTownStore, consumeChangedAddresses } from '../hooks/useTownStore';
 import type { WalletState } from '../types';
 import {
   COL_BG,
   PLOT_STRIDE,
   PLOT_DISTANCE_MULT,
-  TIER_SCALE,
   MAINFRAME_PLOTS,
   ZOOM_MIN,
   ZOOM_MAX,
+  PARTICLE_COUNT,
+  PARTICLE_COLORS,
 } from './constants';
+import { getBuildingSprite, getMainframeSprite, hsl } from './BuildingCache';
 
 /* ───────────────────────────────────────────────────────────
- *  Canvas 2D town renderer — no WebGL, no PixiJS.
- *  Draws isometric buildings directly via CanvasRenderingContext2D.
- *  Only redraws when something actually changes (dirty flag).
+ *  Canvas 2D town renderer — optimised.
+ *
+ *  Key perf wins over the previous version:
+ *    1. OffscreenCanvas sprite cache — 1 drawImage per building
+ *    2. Incremental sync — O(k) per update, not O(n log n)
+ *    3. Grid-based hover — O(1) instead of O(n)
+ *    4. No save()/restore() per building
+ *    5. Cached HSL colour strings
  * ─────────────────────────────────────────────────────────── */
 
 // Reserved mainframe zone
@@ -23,173 +30,85 @@ for (const [x, y] of MAINFRAME_PLOTS) RESERVED.add(`${x},${y}`);
 for (let x = -2; x <= 1; x++)
   for (let y = -2; y <= 1; y++) RESERVED.add(`${x},${y}`);
 
-// Isometric projection
-function iso(bx: number, by: number, bz: number): [number, number] {
-  return [bx - by, (bx + by) * 0.5 - bz];
+// World-space grid spacing between buildings
+const GRID_SPACING = PLOT_STRIDE * PLOT_DISTANCE_MULT; // 518.4
+
+// Background colour as CSS string (computed once)
+const BG_CSS = '#' + COL_BG.toString(16).padStart(6, '0');
+
+// ── MAINFRAME ──
+const MF_WX = -0.5 * GRID_SPACING;
+const MF_WY = -0.5 * GRID_SPACING;
+const MF_DEPTH = MF_WX + MF_WY;
+
+// ── PARTICLES ──
+const P_EXTENT = 5 * GRID_SPACING;
+const PARTICLE_CSS = PARTICLE_COLORS.map(
+  c => `rgb(${(c >> 16) & 0xff},${(c >> 8) & 0xff},${c & 0xff})`,
+);
+const P_TAU = Math.PI * 2;
+
+interface Particle {
+  x: number; y: number;
+  vx: number; vy: number;
+  size: number; alpha: number;
+  color: string;
+  life: number; maxLife: number;
 }
 
-// Cached building data
+function spawnParticle(): Particle {
+  return {
+    x: -P_EXTENT + Math.random() * 2 * P_EXTENT,
+    y: -P_EXTENT + Math.random() * 2 * P_EXTENT,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -0.1 - Math.random() * 0.4,
+    size: 4 + Math.random() * 10,
+    alpha: 0.2 + Math.random() * 0.5,
+    color: PARTICLE_CSS[Math.floor(Math.random() * PARTICLE_CSS.length)],
+    life: 0,
+    maxLife: 300 + Math.random() * 500,
+  };
+}
+
+function resetParticle(p: Particle) {
+  p.x = -P_EXTENT + Math.random() * 2 * P_EXTENT;
+  p.y = -P_EXTENT + Math.random() * 2 * P_EXTENT;
+  p.vx = (Math.random() - 0.5) * 0.3;
+  p.vy = -0.1 - Math.random() * 0.4;
+  p.size = 4 + Math.random() * 10;
+  p.alpha = 0.2 + Math.random() * 0.5;
+  p.color = PARTICLE_CSS[Math.floor(Math.random() * PARTICLE_CSS.length)];
+  p.life = 0;
+  p.maxLife = 300 + Math.random() * 500;
+}
+
+// Building data for rendering
 interface Bld {
   wx: number; wy: number;
+  plotX: number; plotY: number;
   tier: number; hue: number;
   bp: number; dmg: number;
   addr: string;
   depth: number; // sort key for painter's algorithm
 }
 
-// HSL helper — returns CSS string
-function hsl(h: number, s: number, l: number, a = 1): string {
-  return a < 1 ? `hsla(${h},${s}%,${l}%,${a})` : `hsl(${h},${s}%,${l}%)`;
+function shouldInclude(w: WalletState): boolean {
+  if (RESERVED.has(`${w.plotX},${w.plotY}`)) return false;
+  if (w.tokenBalance === '0' || Number(w.tokenBalance) <= 0) return false;
+  return true;
 }
 
-// ── ISOMETRIC BOX ──
-function isoBox(
-  c: CanvasRenderingContext2D,
-  ox: number, oy: number,
-  bw: number, bd: number, bh: number,
-  top: string, left: string, right: string,
-) {
-  const [x0, y0] = iso(ox, oy, 0);
-  const [x1, y1] = iso(ox + bw, oy, 0);
-  const [x3, y3] = iso(ox, oy + bd, 0);
-  const [x4, y4] = iso(ox, oy, bh);
-  const [x5, y5] = iso(ox + bw, oy, bh);
-  const [x6, y6] = iso(ox + bw, oy + bd, bh);
-  const [x7, y7] = iso(ox, oy + bd, bh);
-
-  // Top face
-  c.beginPath();
-  c.moveTo(x4, y4); c.lineTo(x5, y5); c.lineTo(x6, y6); c.lineTo(x7, y7);
-  c.closePath(); c.fillStyle = top; c.fill();
-  // Left face
-  c.beginPath();
-  c.moveTo(x0, y0); c.lineTo(x3, y3); c.lineTo(x7, y7); c.lineTo(x4, y4);
-  c.closePath(); c.fillStyle = left; c.fill();
-  // Right face
-  c.beginPath();
-  c.moveTo(x0, y0); c.lineTo(x1, y1); c.lineTo(x5, y5); c.lineTo(x4, y4);
-  c.closePath(); c.fillStyle = right; c.fill();
+function makeBld(addr: string, w: WalletState): Bld {
+  const wx = w.plotX * GRID_SPACING;
+  const wy = w.plotY * GRID_SPACING;
+  return {
+    wx, wy,
+    plotX: w.plotX, plotY: w.plotY,
+    tier: Math.min(w.houseTier, 5), hue: w.colorHue,
+    bp: w.buildProgress, dmg: w.damagePct, addr,
+    depth: wx + wy,
+  };
 }
-
-// ── WINDOW ON RIGHT FACE ──
-function winR(
-  c: CanvasRenderingContext2D,
-  ox: number, oy: number, bw: number,
-  wy: number, wz: number, ww: number, wh: number,
-  color: string,
-) {
-  const [a, ay] = iso(ox + bw, oy + wy, wz);
-  const [b, by] = iso(ox + bw, oy + wy, wz + wh);
-  const [d, dy] = iso(ox + bw, oy + wy + ww, wz + wh);
-  const [e, ey] = iso(ox + bw, oy + wy + ww, wz);
-  c.beginPath(); c.moveTo(a, ay); c.lineTo(b, by); c.lineTo(d, dy); c.lineTo(e, ey);
-  c.closePath(); c.fillStyle = color; c.fill();
-}
-
-// ── WINDOW ON LEFT FACE ──
-function winL(
-  c: CanvasRenderingContext2D,
-  ox: number, oy: number, bd: number,
-  wx: number, wz: number, ww: number, wh: number,
-  color: string,
-) {
-  const [a, ay] = iso(ox + wx, oy + bd, wz);
-  const [b, by] = iso(ox + wx, oy + bd, wz + wh);
-  const [d, dy] = iso(ox + wx + ww, oy + bd, wz + wh);
-  const [e, ey] = iso(ox + wx + ww, oy + bd, wz);
-  c.beginPath(); c.moveTo(a, ay); c.lineTo(b, by); c.lineTo(d, dy); c.lineTo(e, ey);
-  c.closePath(); c.fillStyle = color; c.fill();
-}
-
-// ── ACCENT LINE ──
-function accentLine(
-  c: CanvasRenderingContext2D,
-  ox: number, oy: number, bw: number, bd: number, z: number,
-  color: string, width: number,
-) {
-  const [a, ay] = iso(ox - 0.2, oy, z);
-  const [b, by] = iso(ox + bw + 0.2, oy, z);
-  const [d, dy] = iso(ox + bw + 0.2, oy + bd, z);
-  c.beginPath(); c.moveTo(a, ay); c.lineTo(b, by); c.lineTo(d, dy);
-  c.strokeStyle = color; c.lineWidth = width; c.stroke();
-}
-
-// ── TIER DRAWERS ──
-// Each draws at unit scale centered on (0,0)
-
-function drawTier1(c: CanvasRenderingContext2D, h: number) {
-  const bw = 4, bd = 4, bh = 3, ox = -2, oy = -2;
-  isoBox(c, ox, oy, bw, bd, bh, hsl(h,15,14), hsl(h,15,8), hsl(h,15,11));
-  winR(c, ox, oy, bw, 1.2, 0.8, 1.5, 1.5, hsl(h,80,60,0.7));
-  winL(c, ox, oy, bd, 1.2, 0.8, 1.5, 1.5, hsl(h,70,50,0.5));
-}
-
-function drawTier2(c: CanvasRenderingContext2D, h: number) {
-  const bw = 5, bd = 5, bh = 6, ox = -2.5, oy = -2.5;
-  isoBox(c, ox, oy, bw, bd, bh, hsl(h,15,15), hsl(h,15,9), hsl(h,15,12));
-  winR(c, ox, oy, bw, 1.5, 1.0, 1.5, 1.5, hsl(h,80,60,0.7));
-  winR(c, ox, oy, bw, 1.5, 3.5, 1.5, 1.5, hsl(h,80,60,0.3));
-  winL(c, ox, oy, bd, 1.5, 1.0, 1.5, 1.5, hsl(h,70,50,0.5));
-  winL(c, ox, oy, bd, 1.5, 3.5, 1.5, 1.5, hsl(h,70,50,0.25));
-  accentLine(c, ox, oy, bw, bd, 3.5, hsl(h,90,55,0.5), 0.15);
-}
-
-function drawTier3(c: CanvasRenderingContext2D, h: number) {
-  const ox = -3, oy = -3;
-  isoBox(c, ox, oy, 6, 6, 4, hsl(h,15,16), hsl(h,15,9), hsl(h,15,12));
-  isoBox(c, ox+0.8, oy+0.8, 4.4, 4.4, 5, hsl(h,15,18), hsl(h,15,10), hsl(h,15,13));
-  winR(c, ox, oy, 6, 0.8, 0.8, 1.2, 1.5, hsl(h,80,60,0.7));
-  winR(c, ox, oy, 6, 2.8, 0.8, 1.2, 1.5, hsl(h,80,60,0.3));
-  winL(c, ox, oy, 6, 1.2, 0.8, 1.2, 1.5, hsl(h,70,50,0.5));
-  winR(c, ox+0.8, oy+0.8, 4.4, 1.0, 5.0, 1.2, 1.5, hsl(h,80,60,0.6));
-  winL(c, ox+0.8, oy+0.8, 4.4, 1.0, 5.0, 1.2, 1.5, hsl(h,70,50,0.4));
-  accentLine(c, ox, oy, 6, 6, 4, hsl(h,90,55,0.6), 0.18);
-}
-
-function drawTier4(c: CanvasRenderingContext2D, h: number) {
-  const ox = -3.5, oy = -3.5;
-  isoBox(c, ox+1, oy+1, 5, 5, 14, hsl(h,15,15), hsl(h,15,8), hsl(h,15,11));
-  isoBox(c, ox-1, oy+1.5, 2, 4, 7, hsl(h,15,13), hsl(h,15,7), hsl(h,15,10));
-  winR(c, ox+1, oy+1, 5, 1.5, 2, 1.2, 1.2, hsl(h,80,60,0.7));
-  winR(c, ox+1, oy+1, 5, 1.5, 5, 1.2, 1.2, hsl(h,80,60,0.35));
-  winR(c, ox+1, oy+1, 5, 1.5, 8, 1.2, 1.2, hsl(h,80,60,0.6));
-  winR(c, ox+1, oy+1, 5, 1.5, 11, 1.2, 1.2, hsl(h,80,60,0.25));
-  winL(c, ox+1, oy+1, 5, 1.5, 3, 1.2, 1.2, hsl(h,70,50,0.5));
-  winL(c, ox+1, oy+1, 5, 1.5, 7, 1.2, 1.2, hsl(h,70,50,0.6));
-  accentLine(c, ox+1, oy+1, 5, 5, 7, hsl(h,90,55,0.5), 0.12);
-  // Spire
-  const [sx, sy] = iso(0, 0, 14);
-  const [tx, ty] = iso(0, 0, 18);
-  c.beginPath(); c.moveTo(sx, sy); c.lineTo(tx, ty);
-  c.strokeStyle = hsl(h,80,55,0.6); c.lineWidth = 0.15; c.stroke();
-  c.beginPath(); c.arc(tx, ty, 0.4, 0, Math.PI*2);
-  c.fillStyle = hsl(h,80,65,0.8); c.fill();
-}
-
-function drawTier5(c: CanvasRenderingContext2D, h: number) {
-  const ox = -4, oy = -4;
-  isoBox(c, ox, oy, 8, 8, 6, hsl(h,15,16), hsl(h,15,8), hsl(h,15,12));
-  isoBox(c, ox+1.2, oy+1.2, 5.6, 5.6, 6, hsl(h,15,18), hsl(h,15,10), hsl(h,15,13));
-  isoBox(c, ox+2.2, oy+2.2, 3.6, 3.6, 6, hsl(h,15,15), hsl(h,15,8), hsl(h,15,11));
-  winR(c, ox, oy, 8, 1.5, 1.5, 1.2, 1.2, hsl(h,80,60,0.7));
-  winR(c, ox, oy, 8, 4.0, 1.5, 1.2, 1.2, hsl(h,80,60,0.35));
-  winR(c, ox, oy, 8, 1.5, 3.5, 1.2, 1.2, hsl(h,80,60,0.5));
-  winL(c, ox, oy, 8, 2.0, 2.0, 1.2, 1.2, hsl(h,70,50,0.45));
-  winR(c, ox+1.2, oy+1.2, 5.6, 1.5, 7.5, 1.2, 1.5, hsl(h,80,60,0.6));
-  winR(c, ox+1.2, oy+1.2, 5.6, 1.5, 10, 1.2, 1.5, hsl(h,80,60,0.3));
-  winL(c, ox+1.2, oy+1.2, 5.6, 1.5, 8, 1.2, 1.5, hsl(h,70,50,0.4));
-  winR(c, ox+2.2, oy+2.2, 3.6, 1.0, 14, 1.2, 1.5, hsl(h,80,60,0.7));
-  accentLine(c, ox, oy, 8, 8, 6, hsl(h,90,55,0.5), 0.15);
-  // Spire
-  const [sx, sy] = iso(0, 0, 18);
-  const [tx, ty] = iso(0, 0, 23);
-  c.beginPath(); c.moveTo(sx, sy); c.lineTo(tx, ty);
-  c.strokeStyle = hsl(h,80,55,0.6); c.lineWidth = 0.15; c.stroke();
-  c.beginPath(); c.arc(tx, ty, 0.5, 0, Math.PI*2);
-  c.fillStyle = hsl(h,80,65,0.8); c.fill();
-}
-
-const TIER_DRAW = [null, drawTier1, drawTier2, drawTier3, drawTier4, drawTier5];
 
 // ── MAIN COMPONENT ──
 
@@ -201,7 +120,6 @@ export default function TownCanvas() {
     if (!_canvas) return;
     const _ctx = _canvas.getContext('2d');
     if (!_ctx) return;
-    // Non-null aliases for closures
     const canvas: HTMLCanvasElement = _canvas;
     const ctx: CanvasRenderingContext2D = _ctx;
 
@@ -210,9 +128,10 @@ export default function TownCanvas() {
     let dragging = false, lastPX = 0, lastPY = 0;
     let dirty = true;
 
-    // Building cache
-    let lastWalletRef: Map<string, WalletState> | null = null;
-    let buildings: Bld[] = [];
+    // Persistent building structures (Step 2: incremental sync)
+    const bldMap = new Map<string, Bld>();
+    let sortedBlds: Bld[] = [];
+    const gridIndex = new Map<string, Bld>(); // "plotX,plotY" → Bld
 
     // Hover
     let hoveredAddr: string | null = null;
@@ -249,7 +168,6 @@ export default function TownCanvas() {
       const oldS = camScale;
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       camScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, camScale * factor));
-      // Zoom toward mouse
       const cx = canvas.clientWidth / 2 + camX;
       const cy = canvas.clientHeight / 2 + camY;
       const wx = (mx - cx) / oldS, wy = (my - cy) / oldS;
@@ -264,7 +182,7 @@ export default function TownCanvas() {
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.style.cursor = 'grab';
 
-    // ── HOVER ──
+    // ── HOVER (Step 3: grid-based O(1)) ──
     let hoverThrottle = 0;
     const onMouseMove = (e: MouseEvent) => {
       if (dragging) return;
@@ -276,25 +194,32 @@ export default function TownCanvas() {
       const cx = canvas.clientWidth / 2 + camX;
       const cy = canvas.clientHeight / 2 + camY;
       const worldX = (mx - cx) / camScale, worldY = (my - cy) / camScale;
+
+      // Grid-based lookup: check 3×3 neighbourhood around nearest plot
+      const centerPX = Math.round(worldX / GRID_SPACING);
+      const centerPY = Math.round(worldY / GRID_SPACING);
       let best: string | null = null;
-      let bestD = 80 * 80;
-      for (const b of buildings) {
-        const dx = worldX - b.wx, dy = worldY - b.wy;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < bestD) { bestD = d2; best = b.addr; }
+      let bestD2 = 80 * 80;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const b = gridIndex.get(`${centerPX + dx},${centerPY + dy}`);
+          if (!b) continue;
+          const ddx = worldX - b.wx, ddy = worldY - b.wy;
+          const d2 = ddx * ddx + ddy * ddy;
+          if (d2 < bestD2) { bestD2 = d2; best = b.addr; }
+        }
       }
+
       if (best !== hoveredAddr) {
         hoveredAddr = best;
         useTownStore.getState().setHoveredHouse(
           best, best ? { x: e.clientX, y: e.clientY } : undefined,
         );
       } else if (best) {
-        // Update tooltip position
         useTownStore.getState().setHoveredHouse(best, { x: e.clientX, y: e.clientY });
       }
     };
     const onMouseLeave = () => {
-      // Delay clear so tooltip can be moused over
       hoverClearTimer = setTimeout(() => {
         hoveredAddr = null;
         useTownStore.getState().setHoveredHouse(null);
@@ -308,38 +233,100 @@ export default function TownCanvas() {
       if (hoverClearTimer) { clearTimeout(hoverClearTimer); hoverClearTimer = null; }
     };
 
+    // ── PARTICLES ──
+    const particles: Particle[] = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const p = spawnParticle();
+      p.life = Math.random() * p.maxLife; // stagger initial lifetimes
+      particles.push(p);
+    }
+
+    // ── ANIMATION FRAME COUNTER ──
+    let frame = 0;
+
     // ── LOCATE HOUSE ──
     useTownStore.getState().setLocateHouse((address: string) => {
       const w = useTownStore.getState().wallets.get(address);
       if (!w) return;
-      const tx = w.plotX * PLOT_STRIDE * PLOT_DISTANCE_MULT;
-      const ty = w.plotY * PLOT_STRIDE * PLOT_DISTANCE_MULT;
+      const tx = w.plotX * GRID_SPACING;
+      const ty = w.plotY * GRID_SPACING;
       camScale = 1.2;
       camX = -tx * camScale;
       camY = -ty * camScale;
       dirty = true;
     });
 
-    // ── SYNC FROM STORE ──
-    function syncFromStore() {
+    // ── SYNC FROM STORE (Step 2: incremental) ──
+    function fullRebuild() {
+      bldMap.clear();
+      gridIndex.clear();
       const wallets = useTownStore.getState().wallets;
-      if (wallets === lastWalletRef) return;
-      lastWalletRef = wallets;
-      const next: Bld[] = [];
       for (const [addr, w] of wallets) {
-        if (RESERVED.has(`${w.plotX},${w.plotY}`)) continue;
-        if (w.tokenBalance === '0' || Number(w.tokenBalance) <= 0) continue;
-        const wx = w.plotX * PLOT_STRIDE * PLOT_DISTANCE_MULT;
-        const wy = w.plotY * PLOT_STRIDE * PLOT_DISTANCE_MULT;
-        next.push({
-          wx, wy, tier: Math.min(w.houseTier, 5), hue: w.colorHue,
-          bp: w.buildProgress, dmg: w.damagePct, addr,
-          depth: wx + wy,
-        });
+        if (!shouldInclude(w)) continue;
+        const bld = makeBld(addr, w);
+        bldMap.set(addr, bld);
+        gridIndex.set(`${w.plotX},${w.plotY}`, bld);
       }
-      // Sort by depth — far buildings first (painter's algorithm)
-      next.sort((a, b) => a.depth - b.depth);
-      buildings = next;
+      sortedBlds = Array.from(bldMap.values());
+      sortedBlds.sort((a, b) => a.depth - b.depth);
+      dirty = true;
+    }
+
+    function syncFromStore() {
+      const { snapshot, changed } = consumeChangedAddresses();
+
+      if (snapshot) { fullRebuild(); return; }
+      if (changed.size === 0) return;
+
+      const wallets = useTownStore.getState().wallets;
+      let structural = false;
+
+      for (const addr of changed) {
+        const w = wallets.get(addr);
+        const existing = bldMap.get(addr);
+        const keep = w != null && shouldInclude(w);
+
+        if (!keep) {
+          // Remove
+          if (existing) {
+            bldMap.delete(addr);
+            gridIndex.delete(`${existing.plotX},${existing.plotY}`);
+            structural = true;
+          }
+          continue;
+        }
+
+        if (!existing) {
+          // Add
+          const bld = makeBld(addr, w);
+          bldMap.set(addr, bld);
+          gridIndex.set(`${w.plotX},${w.plotY}`, bld);
+          structural = true;
+        } else {
+          // Update in-place
+          const newWx = w.plotX * GRID_SPACING;
+          const newWy = w.plotY * GRID_SPACING;
+          if (existing.wx !== newWx || existing.wy !== newWy) {
+            gridIndex.delete(`${existing.plotX},${existing.plotY}`);
+            existing.wx = newWx;
+            existing.wy = newWy;
+            existing.plotX = w.plotX;
+            existing.plotY = w.plotY;
+            existing.depth = newWx + newWy;
+            gridIndex.set(`${w.plotX},${w.plotY}`, existing);
+            structural = true;
+          }
+          existing.tier = Math.min(w.houseTier, 5);
+          existing.hue = w.colorHue;
+          existing.bp = w.buildProgress;
+          existing.dmg = w.damagePct;
+        }
+      }
+
+      if (structural) {
+        sortedBlds = Array.from(bldMap.values());
+        sortedBlds.sort((a, b) => a.depth - b.depth);
+      }
       dirty = true;
     }
 
@@ -348,65 +335,198 @@ export default function TownCanvas() {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
 
+      // Background (pre-camera transform)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Background
-      ctx.fillStyle = '#' + COL_BG.toString(16).padStart(6, '0');
+      ctx.fillStyle = BG_CSS;
       ctx.fillRect(0, 0, w, h);
 
-      // Camera
+      // Camera transform
       const cx = w / 2 + camX, cy = h / 2 + camY;
-      ctx.translate(cx, cy);
-      ctx.scale(camScale, camScale);
+      ctx.setTransform(dpr * camScale, 0, 0, dpr * camScale, dpr * cx, dpr * cy);
 
-      // Viewport culling bounds (in world coords)
+      // Viewport culling bounds (world coords)
       const inv = 1 / camScale;
       const vl = -cx * inv - 300;
       const vt = -cy * inv - 300;
       const vr = (w - cx) * inv + 300;
       const vb = (h - cy) * inv + 300;
 
-      // Draw buildings
-      for (let i = 0; i < buildings.length; i++) {
-        const b = buildings[i];
+      // ── BEAM TRACES (ground-level, behind everything) ──
+      // Build L-shaped paths for all tier>0 buildings, batch into one path
+      ctx.beginPath();
+      for (let i = 0; i < sortedBlds.length; i++) {
+        const b = sortedBlds[i];
+        if (b.tier === 0) continue;
+        if (Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY)) {
+          ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(b.wx, MF_WY); ctx.lineTo(b.wx, b.wy);
+        } else {
+          ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(MF_WX, b.wy); ctx.lineTo(b.wx, b.wy);
+        }
+      }
+      // Outer glow
+      ctx.strokeStyle = 'rgba(0,255,245,0.06)';
+      ctx.lineWidth = 8;
+      ctx.stroke();
+      // Core trace (reuse same path)
+      ctx.strokeStyle = 'rgba(0,255,245,0.18)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // ── BEAM CIRCUIT NODES (batched by alpha) ──
+      // Corner nodes
+      for (const [r, a] of [[5, 0.1], [3, 0.25], [1.5, 0.5]]) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(0,255,245,${a})`;
+        for (let i = 0; i < sortedBlds.length; i++) {
+          const b = sortedBlds[i];
+          if (b.tier === 0) continue;
+          const horiz = Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY);
+          const ncx = horiz ? b.wx : MF_WX;
+          const ncy = horiz ? MF_WY : b.wy;
+          ctx.moveTo(ncx + r, ncy); ctx.arc(ncx, ncy, r, 0, P_TAU);
+        }
+        ctx.fill();
+      }
+      // Endpoint nodes
+      for (const [r, a] of [[6, 0.08], [3.5, 0.2], [1.8, 0.5]]) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(0,255,245,${a})`;
+        for (let i = 0; i < sortedBlds.length; i++) {
+          const b = sortedBlds[i];
+          if (b.tier === 0) continue;
+          ctx.moveTo(b.wx + r, b.wy); ctx.arc(b.wx, b.wy, r, 0, P_TAU);
+        }
+        ctx.fill();
+      }
+
+      // ── MAINFRAME + BUILDINGS (depth order) ──
+      const mf = getMainframeSprite();
+      let mfDrawn = false;
+
+      for (let i = 0; i < sortedBlds.length; i++) {
+        const b = sortedBlds[i];
+
+        // Insert mainframe at correct depth position
+        if (!mfDrawn && b.depth > MF_DEPTH) {
+          ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
+          mfDrawn = true;
+        }
+
         if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
 
-        ctx.save();
-        ctx.translate(b.wx, b.wy);
-
-        if (b.bp < 100) ctx.globalAlpha = 0.35;
-        else if (b.dmg > 50) ctx.globalAlpha = 0.6;
+        // Transparency for under-construction / damaged
+        const needAlpha = b.bp < 100 || b.dmg > 50;
+        if (needAlpha) ctx.globalAlpha = b.bp < 100 ? 0.35 : 0.6;
 
         if (b.tier === 0) {
           ctx.beginPath();
-          ctx.arc(0, 0, 5, 0, Math.PI * 2);
+          ctx.arc(b.wx, b.wy, 5, 0, P_TAU);
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.3);
           ctx.fill();
           ctx.beginPath();
-          ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+          ctx.arc(b.wx, b.wy, 2.5, 0, P_TAU);
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.6);
           ctx.fill();
         } else {
-          const scale = PLOT_STRIDE * (TIER_SCALE[b.tier] ?? 0.5);
-          const isoDiv = [0, 6, 8, 10, 12, 14][b.tier];
-          const u = scale / isoDiv;
-          ctx.scale(u, u);
-          TIER_DRAW[b.tier]!(ctx, b.hue);
+          const { src, bbox, u } = getBuildingSprite(b.tier, b.hue);
+          ctx.drawImage(
+            src,
+            b.wx + bbox.minX * u,
+            b.wy + bbox.minY * u,
+            (bbox.maxX - bbox.minX) * u,
+            (bbox.maxY - bbox.minY) * u,
+          );
         }
 
-        ctx.restore();
+        if (needAlpha) ctx.globalAlpha = 1;
 
-        // Progress bar (in world coords, below building)
         if (b.bp < 100) {
-          ctx.save();
-          ctx.translate(b.wx, b.wy);
           const barW = 20, barH = 3;
           ctx.fillStyle = 'rgba(0,0,0,0.7)';
-          ctx.fillRect(-barW / 2, 8, barW, barH);
+          ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW, barH);
           ctx.fillStyle = hsl(b.hue, 80, 55, 0.9);
-          ctx.fillRect(-barW / 2, 8, barW * (b.bp / 100), barH);
-          ctx.restore();
+          ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW * (b.bp / 100), barH);
         }
       }
+
+      if (!mfDrawn) {
+        ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
+      }
+
+      // ── DATA PACKETS (animated dots traveling along beams) ──
+      const pSpeed = 18;
+      const pkts: number[] = []; // flat [x, y, x, y, ...]
+
+      for (let i = 0; i < sortedBlds.length; i++) {
+        const b = sortedBlds[i];
+        if (b.tier === 0) continue;
+        const ddx = Math.abs(b.wx - MF_WX), ddy = Math.abs(b.wy - MF_WY);
+        const horiz = ddx >= ddy;
+        const seg1 = horiz ? ddx : ddy;
+        const seg2 = horiz ? ddy : ddx;
+        const total = seg1 + seg2;
+        if (total < 1) continue;
+
+        const mid1x = horiz ? b.wx : MF_WX;
+        const mid1y = horiz ? MF_WY : b.wy;
+        const stagger = (b.tier * 37 + Math.abs(Math.round(b.wx) * 7 + Math.round(b.wy) * 13)) % 1000;
+        const count = Math.min(1 + (b.tier >> 1), 2);
+
+        for (let pi = 0; pi < count; pi++) {
+          const raw = frame * pSpeed + stagger + (pi * total) / count;
+          const cyc = ((raw % total) + total) % total;
+          let px: number, py: number;
+          if (cyc <= seg1) {
+            const t = cyc / seg1;
+            px = MF_WX + (mid1x - MF_WX) * t;
+            py = MF_WY + (mid1y - MF_WY) * t;
+          } else {
+            const t = (cyc - seg1) / seg2;
+            px = mid1x + (b.wx - mid1x) * t;
+            py = mid1y + (b.wy - mid1y) * t;
+          }
+          pkts.push(px, py);
+        }
+      }
+
+      // Draw packets in 4 batched layers (12 total API calls for all packets)
+      for (const [r, style] of [
+        [14, 'rgba(0,255,245,0.08)'],
+        [8, 'rgba(0,255,245,0.2)'],
+        [4, 'rgba(0,255,245,0.5)'],
+        [2, 'rgba(255,255,255,0.9)'],
+      ] as const) {
+        ctx.beginPath();
+        ctx.fillStyle = style;
+        for (let j = 0; j < pkts.length; j += 2) {
+          ctx.moveTo(pkts[j] + r, pkts[j + 1]);
+          ctx.arc(pkts[j], pkts[j + 1], r, 0, P_TAU);
+        }
+        ctx.fill();
+      }
+
+      // ── PARTICLES (world-space, 15 circles) ──
+      for (const p of particles) {
+        p.life++;
+        p.x += p.vx;
+        p.y += p.vy;
+
+        const lifeRatio = p.life / p.maxLife;
+        let fadeAlpha = p.alpha;
+        if (lifeRatio < 0.1) fadeAlpha *= lifeRatio / 0.1;
+        else if (lifeRatio > 0.8) fadeAlpha *= (1 - lifeRatio) / 0.2;
+
+        if (fadeAlpha > 0.01) {
+          ctx.globalAlpha = fadeAlpha;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, P_TAU);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+        }
+
+        if (p.life >= p.maxLife) resetParticle(p);
+      }
+      ctx.globalAlpha = 1;
 
       // Reset transform
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -431,9 +551,11 @@ export default function TownCanvas() {
         fps = frameCount; dps = drawCount;
         frameCount = 0; drawCount = 0;
         lastFpsTime = now;
-        fpsDiv.textContent = `FPS: ${fps} | Draws: ${dps} | Bldgs: ${buildings.length}`;
+        fpsDiv.textContent = `FPS: ${fps} | Draws: ${dps} | Bldgs: ${sortedBlds.length}`;
       }
       syncFromStore();
+      frame++;
+      dirty = true; // particles + data packets always animate
       if (dirty) { dirty = false; drawCount++; draw(); }
     }
     rafId = requestAnimationFrame(loop);

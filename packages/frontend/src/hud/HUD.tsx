@@ -257,7 +257,7 @@ function MainframeConsole() {
           <span style={{ ...styles.dot, background: '#00ff88' }} />
           <span style={{ ...styles.dot, background: '#00fff5' }} />
         </div>
-        <span style={styles.consoleTitle}>MAINFRAME v3.0 — NEURAL CORE</span>
+        <span style={styles.consoleTitle}>CLAWD</span>
       </div>
       <div style={styles.consoleBody}>
         <div style={styles.consoleLine}>
