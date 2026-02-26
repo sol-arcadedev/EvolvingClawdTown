@@ -67,12 +67,12 @@ function Header() {
   return (
     <div style={styles.header}>
       <div style={styles.titleRow}>
+        <span style={styles.title}>EVOLVING CLAWD TOWN</span>
         <img
           src="/EvolvingClawdTown_TokenImage_1.png"
           alt="ClawdTown"
           style={styles.tokenLogo}
         />
-        <span style={styles.title}>EVOLVING CLAWD TOWN</span>
       </div>
       <div style={styles.caRow}>
         <span style={styles.caLabel}>CA:</span>
@@ -540,8 +540,7 @@ const styles: Record<string, React.CSSProperties> = {
   titleRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
-    justifyContent: 'space-between',
+    gap: 10,
   },
   tokenLogo: {
     width: 36,
