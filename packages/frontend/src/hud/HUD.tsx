@@ -36,7 +36,6 @@ function Header() {
     <div style={styles.header}>
       <div style={styles.titleRow}>
         <span style={styles.title}>EVOLVING CLAWD TOWN</span>
-        <ConnectionStatus />
       </div>
       <div style={styles.caRow}>
         <span style={styles.caLabel}>CA:</span>
@@ -49,6 +48,7 @@ function Header() {
           )}
         </button>
       </div>
+      <ConnectionStatus />
     </div>
   );
 }
@@ -496,6 +496,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
+    marginTop: 4,
   },
   connectionLabel: {
     fontFamily: '"Courier New", monospace',
