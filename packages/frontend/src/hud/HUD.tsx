@@ -39,7 +39,7 @@ function Header() {
       </div>
       <div style={styles.caRow}>
         <span style={styles.caLabel}>CA:</span>
-        <span style={styles.caAddress}>{tokenMint ? `${tokenMint.slice(0, 16)}...${tokenMint.slice(-6)}` : '...'}</span>
+        <span style={styles.caAddress}>{tokenMint || '...'}</span>
         <button onClick={handleCopy} style={styles.copyBtn} title="Copy address">
           {copied ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ff88" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
@@ -47,6 +47,14 @@ function Header() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00fff5" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
           )}
         </button>
+      </div>
+      <div style={styles.linksRow}>
+        <a href="https://x.com/i/communities/2026458921699889228" target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+          X Community
+        </a>
+        <a href="https://x.com/ClawdTown_Sol" target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+          Official X
+        </a>
       </div>
       <ConnectionStatus />
     </div>
@@ -489,6 +497,27 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     opacity: 0.7,
+  },
+
+  // Links row
+  linksRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  linkBtn: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 10,
+    fontWeight: 600,
+    color: '#00fff5',
+    textDecoration: 'none',
+    padding: '3px 8px',
+    border: '1px solid rgba(0,255,245,0.3)',
+    borderRadius: 4,
+    background: 'rgba(0,255,245,0.06)',
+    letterSpacing: 0.5,
+    cursor: 'pointer',
   },
 
   // Connection status

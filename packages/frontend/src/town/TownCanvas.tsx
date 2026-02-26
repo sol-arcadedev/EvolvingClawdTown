@@ -11,7 +11,7 @@ import {
   PARTICLE_COUNT,
   PARTICLE_COLORS,
 } from './constants';
-import { getBuildingSprite, getMainframeSprite, hsl, TIER_U } from './BuildingCache';
+import { getBuildingSprite, getMainframeSprite, getLightSprite, hsl, TIER_U } from './BuildingCache';
 
 /* ───────────────────────────────────────────────────────────
  *  Canvas 2D town renderer — optimised.
@@ -435,32 +435,7 @@ export default function TownCanvas() {
       ctx.lineWidth = 2.5;
       ctx.stroke();
 
-      // ── BEAM CIRCUIT NODES (batched by alpha) ──
-      // Corner nodes
-      for (const [r, a] of [[5, 0.1], [3, 0.25], [1.5, 0.5]]) {
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(0,255,245,${a})`;
-        for (let i = 0; i < sortedBlds.length; i++) {
-          const b = sortedBlds[i];
-          if (b.tier === 0) continue;
-          const horiz = Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY);
-          const ncx = horiz ? b.wx : MF_WX;
-          const ncy = horiz ? MF_WY : b.wy;
-          ctx.moveTo(ncx + r, ncy); ctx.arc(ncx, ncy, r, 0, P_TAU);
-        }
-        ctx.fill();
-      }
-      // Endpoint nodes
-      for (const [r, a] of [[6, 0.08], [3.5, 0.2], [1.8, 0.5]]) {
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(0,255,245,${a})`;
-        for (let i = 0; i < sortedBlds.length; i++) {
-          const b = sortedBlds[i];
-          if (b.tier === 0) continue;
-          ctx.moveTo(b.wx + r, b.wy); ctx.arc(b.wx, b.wy, r, 0, P_TAU);
-        }
-        ctx.fill();
-      }
+      // (beam nodes removed — arc() calls were too expensive)
 
       // ── MAINFRAME + BUILDINGS (depth order) ──
       const mf = getMainframeSprite();
@@ -511,21 +486,16 @@ export default function TownCanvas() {
           ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW * (b.bp / 100), barH);
         }
 
-        // Blinking lights
+        // Blinking lights (1 drawImage per light instead of 3 arc+fill)
         if (b.lights.length > 0) {
-          ctx.fillStyle = hsl(b.hue, 90, 60);
+          const lSpr = getLightSprite(b.hue);
           for (let li = 0; li < b.lights.length; li++) {
             const l = b.lights[li];
             const pulse = Math.sin(frame * l.speed + l.phase);
             if (pulse < 0) continue;
-            const a = pulse * 0.9;
-            const lx = b.wx + l.ox, ly = b.wy + l.oy;
-            ctx.globalAlpha = a * 0.2;
-            ctx.beginPath(); ctx.arc(lx, ly, l.size * 2.5, 0, P_TAU); ctx.fill();
-            ctx.globalAlpha = a * 0.4;
-            ctx.beginPath(); ctx.arc(lx, ly, l.size * 1.5, 0, P_TAU); ctx.fill();
-            ctx.globalAlpha = a;
-            ctx.beginPath(); ctx.arc(lx, ly, l.size, 0, P_TAU); ctx.fill();
+            const hw = l.size * 2.5;
+            ctx.globalAlpha = pulse * 0.9;
+            ctx.drawImage(lSpr, b.wx + l.ox - hw, b.wy + l.oy - hw, hw * 2, hw * 2);
           }
           ctx.globalAlpha = 1;
         }
@@ -535,7 +505,7 @@ export default function TownCanvas() {
         ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
       }
 
-      // ── DATA PACKETS (animated dots traveling along beams) ──
+      // ── DATA PACKETS (1 per beam, fillRect instead of arc) ──
       const pSpeed = 18;
       const pkts: number[] = []; // flat [x, y, x, y, ...]
 
@@ -548,46 +518,36 @@ export default function TownCanvas() {
         const seg2 = horiz ? ddy : ddx;
         const total = seg1 + seg2;
         if (total < 1) continue;
-
         const mid1x = horiz ? b.wx : MF_WX;
         const mid1y = horiz ? MF_WY : b.wy;
         const stagger = (b.tier * 37 + Math.abs(Math.round(b.wx) * 7 + Math.round(b.wy) * 13)) % 1000;
-        const count = Math.min(1 + (b.tier >> 1), 2);
-
-        for (let pi = 0; pi < count; pi++) {
-          const raw = frame * pSpeed + stagger + (pi * total) / count;
-          const cyc = ((raw % total) + total) % total;
-          let px: number, py: number;
-          if (cyc <= seg1) {
-            const t = cyc / seg1;
-            px = MF_WX + (mid1x - MF_WX) * t;
-            py = MF_WY + (mid1y - MF_WY) * t;
-          } else {
-            const t = (cyc - seg1) / seg2;
-            px = mid1x + (b.wx - mid1x) * t;
-            py = mid1y + (b.wy - mid1y) * t;
-          }
-          pkts.push(px, py);
+        const raw = frame * pSpeed + stagger;
+        const cyc = ((raw % total) + total) % total;
+        let px: number, py: number;
+        if (cyc <= seg1) {
+          const t = cyc / seg1;
+          px = MF_WX + (mid1x - MF_WX) * t;
+          py = MF_WY + (mid1y - MF_WY) * t;
+        } else {
+          const t = (cyc - seg1) / seg2;
+          px = mid1x + (b.wx - mid1x) * t;
+          py = mid1y + (b.wy - mid1y) * t;
         }
+        pkts.push(px, py);
       }
 
-      // Draw packets in 4 batched layers (12 total API calls for all packets)
-      for (const [r, style] of [
-        [14, 'rgba(0,255,245,0.08)'],
-        [8, 'rgba(0,255,245,0.2)'],
-        [4, 'rgba(0,255,245,0.5)'],
-        [2, 'rgba(255,255,255,0.9)'],
-      ] as const) {
-        ctx.beginPath();
-        ctx.fillStyle = style;
-        for (let j = 0; j < pkts.length; j += 2) {
-          ctx.moveTo(pkts[j] + r, pkts[j + 1]);
-          ctx.arc(pkts[j], pkts[j + 1], r, 0, P_TAU);
-        }
-        ctx.fill();
+      // Glow layer (1 fillRect per packet)
+      ctx.fillStyle = 'rgba(0,255,245,0.12)';
+      for (let j = 0; j < pkts.length; j += 2) {
+        ctx.fillRect(pkts[j] - 6, pkts[j + 1] - 6, 12, 12);
+      }
+      // Core layer (1 fillRect per packet)
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      for (let j = 0; j < pkts.length; j += 2) {
+        ctx.fillRect(pkts[j] - 2, pkts[j + 1] - 4, 4, 4);
       }
 
-      // ── PARTICLES (world-space, 15 circles) ──
+      // ── PARTICLES (world-space, fillRect for speed) ──
       for (const p of particles) {
         p.life++;
         p.x += p.vx;
@@ -600,10 +560,8 @@ export default function TownCanvas() {
 
         if (fadeAlpha > 0.01) {
           ctx.globalAlpha = fadeAlpha;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, P_TAU);
           ctx.fillStyle = p.color;
-          ctx.fill();
+          ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
         }
 
         if (p.life >= p.maxLife) resetParticle(p);

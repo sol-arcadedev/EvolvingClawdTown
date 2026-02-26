@@ -244,6 +244,33 @@ export function getBuildingSprite(tier: number, hue: number): SpriteInfo {
   return { src, bbox, u };
 }
 
+// ── LIGHT SPRITES (pre-rendered glow dots) ──────────────────
+// 1 drawImage per light instead of 3 beginPath+arc+fill
+const LIGHT_PX = 30;
+const LIGHT_R = LIGHT_PX / 2;
+const lightCache = new Map<number, CanvasImageSource>();
+
+export function getLightSprite(hue: number): CanvasImageSource {
+  const qh = quantizeHue(hue);
+  let src = lightCache.get(qh);
+  if (src) return src;
+
+  const cvs = makeCanvas(LIGHT_PX, LIGHT_PX);
+  const c = cvs.getContext('2d') as CanvasRenderingContext2D;
+  const cx = LIGHT_R, cy = LIGHT_R;
+  c.fillStyle = `hsl(${qh},90%,60%)`;
+
+  c.globalAlpha = 0.22;
+  c.beginPath(); c.arc(cx, cy, LIGHT_R, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 0.44;
+  c.beginPath(); c.arc(cx, cy, LIGHT_R * 0.6, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 1;
+  c.beginPath(); c.arc(cx, cy, LIGHT_R * 0.4, 0, Math.PI * 2); c.fill();
+
+  lightCache.set(qh, cvs);
+  return cvs;
+}
+
 // ── MAINFRAME SPRITE ────────────────────────────────────────
 
 const MF_SIZE = PLOT_STRIDE * 1.8; // 518.4

@@ -3,6 +3,25 @@ import { WalletState, TradeEvent } from '../types';
 
 const MAX_CONSOLE_LINES = 14;
 
+// ── Change-tracking (module-level, not in Zustand state) ────────
+let _changedAddresses = new Set<string>();
+let _snapshotDirty = false;
+
+/** Read and clear pending changes. Renderer calls this once per frame. */
+export function consumeChangedAddresses(): { snapshot: boolean; changed: Set<string> } {
+  if (_snapshotDirty) {
+    _snapshotDirty = false;
+    _changedAddresses = new Set();
+    return { snapshot: true, changed: new Set() };
+  }
+  if (_changedAddresses.size === 0) {
+    return { snapshot: false, changed: _changedAddresses };
+  }
+  const result = _changedAddresses;
+  _changedAddresses = new Set();
+  return { snapshot: false, changed: result };
+}
+
 interface TownStore {
   wallets: Map<string, WalletState>;
   recentTrades: TradeEvent[];
@@ -46,6 +65,8 @@ export const useTownStore = create<TownStore>((set) => ({
     for (const w of wallets) {
       map.set(w.address, w);
     }
+    _snapshotDirty = true;
+    _changedAddresses = new Set();
     const update: Partial<TownStore> = { wallets: map };
     if (consoleLines) update.consoleLines = consoleLines.slice(-MAX_CONSOLE_LINES);
     if (tokenMint) update.tokenMint = tokenMint;
@@ -53,6 +74,7 @@ export const useTownStore = create<TownStore>((set) => ({
   },
 
   applyWalletUpdate: (update) => {
+    _changedAddresses.add(update.address);
     set((state) => {
       const newMap = new Map(state.wallets);
       newMap.set(update.address, update);
@@ -61,6 +83,7 @@ export const useTownStore = create<TownStore>((set) => ({
   },
 
   applyWalletBatch: (updates) => {
+    for (const w of updates) _changedAddresses.add(w.address);
     set((state) => {
       const newMap = new Map(state.wallets);
       for (const w of updates) {
