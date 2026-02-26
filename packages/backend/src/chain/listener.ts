@@ -111,7 +111,7 @@ export class ChainListener {
     if (!res.ok) {
       throw new Error(`Helius API error: ${res.status} ${res.statusText}`);
     }
-    return res.json();
+    return res.json() as Promise<HeliusTransaction[]>;
   }
 
   private async processTransaction(tx: HeliusTransaction): Promise<void> {
