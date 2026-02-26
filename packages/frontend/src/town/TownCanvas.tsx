@@ -11,7 +11,7 @@ import {
   PARTICLE_COUNT,
   PARTICLE_COLORS,
 } from './constants';
-import { getBuildingSprite, getMainframeSprite, hsl } from './BuildingCache';
+import { getBuildingSprite, getMainframeSprite, hsl, TIER_U } from './BuildingCache';
 
 /* ───────────────────────────────────────────────────────────
  *  Canvas 2D town renderer — optimised.
@@ -82,6 +82,62 @@ function resetParticle(p: Particle) {
   p.maxLife = 300 + Math.random() * 500;
 }
 
+// ── BLINKING LIGHTS ──
+const LIGHT_COUNTS = [0, 1, 2, 3, 5, 8]; // per tier
+const TIER_DIMS: [number, number, number][] = [
+  [0,0,0], [4,4,3], [5,5,6], [6,6,9], [7,7,14], [8,8,20],
+];
+
+function isoXY(bx: number, by: number, bz: number): [number, number] {
+  return [bx - by, (bx + by) * 0.5 - bz];
+}
+
+function addrHash(addr: string): number {
+  let h = 0;
+  for (let i = 0; i < addr.length; i++) {
+    h = ((h << 5) - h + addr.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+interface BldLight {
+  ox: number; oy: number; // world-unit offset from building center
+  phase: number; speed: number; size: number; // size in world units
+}
+
+function computeLights(addr: string, tier: number): BldLight[] {
+  const count = LIGHT_COUNTS[tier] ?? 0;
+  if (count === 0) return [];
+  const [bw, bd, bh] = TIER_DIMS[tier];
+  const u = TIER_U[tier];
+  const hash = addrHash(addr);
+  const lights: BldLight[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const seed = ((hash * 31 + i * 97) & 0x7fffffff) / 0x7fffffff;
+    const seed2 = ((hash * 53 + i * 71) & 0x7fffffff) / 0x7fffffff;
+    const onRight = i % 2 === 0;
+    const faceY = seed * (bd * 0.7) + bd * 0.15;
+    const faceZ = (seed2 * 0.6 + 0.2) * bh;
+    let ix: number, iy: number;
+    if (onRight) {
+      [ix, iy] = isoXY(bw / 2, -bd / 2 + faceY, faceZ);
+    } else {
+      const faceX = seed * (bw * 0.7) + bw * 0.15;
+      [ix, iy] = isoXY(-bw / 2 + faceX, bd / 2, faceZ);
+    }
+    lights.push({
+      ox: ix * u, oy: iy * u,
+      phase: seed * Math.PI * 2,
+      speed: 0.15 + seed2 * 0.25,
+      size: (0.6 + seed2 * 0.5) * u,
+    });
+  }
+  return lights;
+}
+
+const EMPTY_LIGHTS: BldLight[] = [];
+
 // Building data for rendering
 interface Bld {
   wx: number; wy: number;
@@ -90,6 +146,7 @@ interface Bld {
   bp: number; dmg: number;
   addr: string;
   depth: number; // sort key for painter's algorithm
+  lights: BldLight[];
 }
 
 function shouldInclude(w: WalletState): boolean {
@@ -101,12 +158,14 @@ function shouldInclude(w: WalletState): boolean {
 function makeBld(addr: string, w: WalletState): Bld {
   const wx = w.plotX * GRID_SPACING;
   const wy = w.plotY * GRID_SPACING;
+  const tier = Math.min(w.houseTier, 5);
   return {
     wx, wy,
     plotX: w.plotX, plotY: w.plotY,
-    tier: Math.min(w.houseTier, 5), hue: w.colorHue,
+    tier, hue: w.colorHue,
     bp: w.buildProgress, dmg: w.damagePct, addr,
     depth: wx + wy,
+    lights: computeLights(addr, tier),
   };
 }
 
@@ -316,7 +375,11 @@ export default function TownCanvas() {
             gridIndex.set(`${w.plotX},${w.plotY}`, existing);
             structural = true;
           }
-          existing.tier = Math.min(w.houseTier, 5);
+          const newTier = Math.min(w.houseTier, 5);
+          if (existing.tier !== newTier) {
+            existing.lights = computeLights(addr, newTier);
+          }
+          existing.tier = newTier;
           existing.hue = w.colorHue;
           existing.bp = w.buildProgress;
           existing.dmg = w.damagePct;
@@ -446,6 +509,25 @@ export default function TownCanvas() {
           ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW, barH);
           ctx.fillStyle = hsl(b.hue, 80, 55, 0.9);
           ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW * (b.bp / 100), barH);
+        }
+
+        // Blinking lights
+        if (b.lights.length > 0) {
+          ctx.fillStyle = hsl(b.hue, 90, 60);
+          for (let li = 0; li < b.lights.length; li++) {
+            const l = b.lights[li];
+            const pulse = Math.sin(frame * l.speed + l.phase);
+            if (pulse < 0) continue;
+            const a = pulse * 0.9;
+            const lx = b.wx + l.ox, ly = b.wy + l.oy;
+            ctx.globalAlpha = a * 0.2;
+            ctx.beginPath(); ctx.arc(lx, ly, l.size * 2.5, 0, P_TAU); ctx.fill();
+            ctx.globalAlpha = a * 0.4;
+            ctx.beginPath(); ctx.arc(lx, ly, l.size * 1.5, 0, P_TAU); ctx.fill();
+            ctx.globalAlpha = a;
+            ctx.beginPath(); ctx.arc(lx, ly, l.size, 0, P_TAU); ctx.fill();
+          }
+          ctx.globalAlpha = 1;
         }
       }
 
