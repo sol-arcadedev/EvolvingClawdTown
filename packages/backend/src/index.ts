@@ -265,33 +265,33 @@ async function main() {
   // ── Mainframe console broadcaster ──
   // All AI messages are defined here so every client sees the same lines at the same time
   const AI_MESSAGES = [
-    'Initializing neural pathways...',
-    'Optimizing city grid layout...',
-    'Deploying nano-constructors...',
-    'Scanning blockchain activity...',
-    'Calibrating holographic projectors...',
-    'Synchronizing quantum relays...',
-    'Analyzing token flow patterns...',
-    'Upgrading defense matrices...',
-    'Compiling architectural schematics...',
-    'Routing energy to construction sites...',
-    'Defragmenting city memory banks...',
-    'Establishing neural links...',
-    'Processing wallet signatures...',
-    'Generating procedural structures...',
-    'Monitoring city health metrics...',
-    'Allocating compute resources...',
-    'Recalibrating beam frequencies...',
-    'Integrating new residents...',
-    'Patching security protocols...',
-    'Expanding city infrastructure...',
+    'Observing chain state, deciding next moves...',
+    'Reviewing holder portfolios for tier changes...',
+    'Planning building upgrades for loyal holders...',
+    'Thinking about town expansion...',
+    'Assigning plots to new arrivals...',
+    'Rewarding diamond hands with construction boosts...',
+    'Analyzing trade patterns, adjusting strategies...',
+    'Checking who deserves a promotion...',
+    'Patrolling the town perimeter...',
+    'Drafting blueprints for the next megastructure...',
+    'Evaluating damage reports from paper hands...',
+    'Welcoming a new resident to Clawd Town...',
+    'Running diagnostics on town infrastructure...',
+    'Studying wallet histories, learning holder behavior...',
+    'Optimizing plot layout for maximum efficiency...',
+    'Debating whether to buff or nerf build speeds...',
+    'Cataloging today\'s most active traders...',
+    'Inspecting construction sites for progress...',
+    'Deliberating on tier promotion candidates...',
+    'Autonomously managing town operations...',
   ];
   const CONSOLE_LINE_INTERVAL = parseInt(process.env.CONSOLE_LINE_INTERVAL_MS || '3000');
 
   // Seed initial lines
-  wsServer.pushConsoleLine('> MAINFRAME v3.0 ONLINE');
-  wsServer.pushConsoleLine('> Neural core initialized');
-  wsServer.pushConsoleLine('> City grid: ACTIVE');
+  wsServer.pushConsoleLine('> Clawd agent online');
+  wsServer.pushConsoleLine('> Town systems nominal');
+  wsServer.pushConsoleLine('> Monitoring holders...');
 
   let consoleMsgIndex = 0;
   const consoleTimer = setInterval(() => {
