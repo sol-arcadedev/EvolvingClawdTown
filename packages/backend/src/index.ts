@@ -413,11 +413,11 @@ async function main() {
     startedAt,
   }));
 
+  // Seed Clawd's own HQ at plot (0,0) — before holders so (0,0) is taken
+  await seedClawdHQ(db);
+
   // Seed holders from Helius if DB is empty (first run with new token)
   await seedHolders(db);
-
-  // Seed Clawd's own HQ at plot (0,0)
-  await seedClawdHQ(db);
 
   // Queue Clawd HQ design first, then holder buildings
   decisionQueue.queueClawdHQ();

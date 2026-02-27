@@ -146,6 +146,8 @@ export function createAdminRouter(deps: AdminDeps): Router {
       // Background: seed, start chain listener, drip-feed
       (async () => {
         try {
+          // Seed Clawd HQ at plot (0,0) before holders so (0,0) is taken
+          await deps.seedClawdHQ();
           await deps.seedHolders(true);
 
           const rpcUrl = process.env.HELIUS_RPC_URL;
@@ -154,9 +156,6 @@ export function createAdminRouter(deps: AdminDeps): Router {
             await newListener.start();
             deps.setChainListener(newListener);
           }
-
-          // Seed Clawd HQ at plot (0,0)
-          await deps.seedClawdHQ();
 
           log.info(`[ADMIN] Seed complete for ${mint}`);
           await broadcastWalletsDrip(deps, mint);
@@ -177,8 +176,8 @@ export function createAdminRouter(deps: AdminDeps): Router {
   // Re-seed holders
   router.post('/api/admin/reseed', async (_req: Request, res: Response) => {
     try {
-      await deps.seedHolders(true);
       await deps.seedClawdHQ();
+      await deps.seedHolders(true);
 
       log.info('[ADMIN] Re-seed complete');
       res.json({ success: true, message: 'Re-seed complete' });
