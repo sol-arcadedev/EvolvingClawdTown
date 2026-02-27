@@ -39,12 +39,6 @@ export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 3;
 export const ZOOM_SPEED = 0.001;
 
-// Mainframe
-export const MAINFRAME_PULSE_SPEED = 0.02;
-export const CONSOLE_LINE_INTERVAL = 3000;
-export const CONSOLE_MAX_LINES = 6;
-export const CURSOR_BLINK_SPEED = 500;
-
 // Mainframe reserved plots (center 2x2)
 export const MAINFRAME_PLOTS = [
   [0, 0],

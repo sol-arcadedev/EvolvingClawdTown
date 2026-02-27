@@ -15,7 +15,7 @@ import {
   TIER_GROUND_BORDER_COLORS,
   GROUND_SIZE_FACTOR,
 } from './constants';
-import { getBuildingSprite, getMainframeSprite, getLightSprite, hsl, TIER_U } from './BuildingCache';
+import { getBuildingSprite, getLightSprite, hsl, TIER_U } from './BuildingCache';
 
 /* ───────────────────────────────────────────────────────────
  *  Canvas 2D town renderer — optimised.
@@ -529,30 +529,7 @@ export default function TownCanvas() {
       // Should we draw animations? Skip during active pan/zoom for smooth 60fps
       const showAnim = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
 
-      // ── BEAM TRACES (ground-level, behind everything) ──
-      // Skip during zoom for faster redraws; always show when idle
-      if (showAnim) {
-        ctx.beginPath();
-        for (let i = 0; i < sortedBlds.length; i++) {
-          const b = sortedBlds[i];
-          if (b.tier === 0) continue;
-          if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
-          if (Math.abs(b.wx - MF_WX) >= Math.abs(b.wy - MF_WY)) {
-            ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(b.wx, MF_WY); ctx.lineTo(b.wx, b.wy);
-          } else {
-            ctx.moveTo(MF_WX, MF_WY); ctx.lineTo(MF_WX, b.wy); ctx.lineTo(b.wx, b.wy);
-          }
-        }
-        ctx.strokeStyle = 'rgba(0,255,245,0.06)';
-        ctx.lineWidth = 8;
-        ctx.stroke();
-        ctx.strokeStyle = 'rgba(0,255,245,0.18)';
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-      }
-
       // ── MAINFRAME + BUILDINGS (depth order) ──
-      const mf = getMainframeSprite();
       let mfDrawn = false;
 
       // Check if Clawd HQ has a custom AI image to replace the static mainframe sprite
@@ -567,9 +544,6 @@ export default function TownCanvas() {
           const drawW = baseSize * aspect;
           const drawH = baseSize;
           ctx.drawImage(hqImg, MF_WX - drawW / 2, MF_WY - drawH + 4, drawW, drawH);
-        } else {
-          // Fallback to static mainframe sprite
-          ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
         }
       };
 
@@ -681,48 +655,8 @@ export default function TownCanvas() {
         drawMainframe();
       }
 
-      // ── DATA PACKETS + PARTICLES — only when idle ──
+      // ── PARTICLES — only when idle ──
       if (showAnim) {
-        const pSpeed = 18;
-        const pkts: number[] = [];
-
-        for (let i = 0; i < sortedBlds.length; i++) {
-          const b = sortedBlds[i];
-          if (b.tier === 0) continue;
-          if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
-          const ddx = Math.abs(b.wx - MF_WX), ddy = Math.abs(b.wy - MF_WY);
-          const horiz = ddx >= ddy;
-          const seg1 = horiz ? ddx : ddy;
-          const seg2 = horiz ? ddy : ddx;
-          const total = seg1 + seg2;
-          if (total < 1) continue;
-          const mid1x = horiz ? b.wx : MF_WX;
-          const mid1y = horiz ? MF_WY : b.wy;
-          const stagger = (b.tier * 37 + Math.abs(Math.round(b.wx) * 7 + Math.round(b.wy) * 13)) % 1000;
-          const raw = frame * pSpeed + stagger;
-          const cyc = ((raw % total) + total) % total;
-          let px: number, py: number;
-          if (cyc <= seg1) {
-            const t = cyc / seg1;
-            px = MF_WX + (mid1x - MF_WX) * t;
-            py = MF_WY + (mid1y - MF_WY) * t;
-          } else {
-            const t = (cyc - seg1) / seg2;
-            px = mid1x + (b.wx - mid1x) * t;
-            py = mid1y + (b.wy - mid1y) * t;
-          }
-          pkts.push(px, py);
-        }
-
-        ctx.fillStyle = 'rgba(0,255,245,0.12)';
-        for (let j = 0; j < pkts.length; j += 2) {
-          ctx.fillRect(pkts[j] - 6, pkts[j + 1] - 6, 12, 12);
-        }
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        for (let j = 0; j < pkts.length; j += 2) {
-          ctx.fillRect(pkts[j] - 2, pkts[j + 1] - 4, 4, 4);
-        }
-
         // Particles
         for (const p of particles) {
           p.life++;
