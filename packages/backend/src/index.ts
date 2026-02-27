@@ -17,6 +17,8 @@ import { createRestRouter } from './api/rest';
 import { createAdminRouter } from './api/admin';
 import { TownWebSocketServer } from './api/ws';
 import { log } from './utils/logger';
+import { DecisionQueue, DecisionResult } from './ai/decision-queue';
+import { isAIEnabled } from './ai/clawd-agent';
 
 interface HeliusTokenAccount {
   address: string;
@@ -140,6 +142,9 @@ async function main() {
   // Game engine
   const engine = new GameEngine(db);
 
+  // AI Decision Queue
+  const decisionQueue = new DecisionQueue(db);
+
   // Express app
   const app = express();
   const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -164,6 +169,40 @@ async function main() {
   // WebSocket server (pass null redisUrl if Redis failed)
   const wsServer = new TownWebSocketServer(server, db, redisPub ? redisUrl : null);
 
+  // AI Progress callback — stream Clawd's thinking to the console
+  decisionQueue.setOnProgress((line) => {
+    wsServer.pushConsoleLine(line);
+  });
+
+  // AI Decision callback — broadcast Clawd decisions to all clients
+  decisionQueue.setOnDecision(async (result: DecisionResult) => {
+    try {
+      // Push Clawd's comment to the console
+      wsServer.pushConsoleLine(`> ${result.decision.clawd_comment}`);
+
+      // Broadcast the decision
+      wsServer.broadcastMessage({
+        type: 'clawd_decision',
+        walletAddress: result.walletAddress,
+        buildingName: result.decision.building_name,
+        architecturalStyle: result.decision.architectural_style,
+        clawdComment: result.decision.clawd_comment,
+      });
+
+      // If an image was generated, broadcast that too
+      if (result.imageUrl) {
+        wsServer.broadcastMessage({
+          type: 'building_image_update',
+          walletAddress: result.walletAddress,
+          imageUrl: result.imageUrl,
+          buildingName: result.decision.building_name,
+        });
+      }
+    } catch (err) {
+      log.error('Error broadcasting AI decision:', err);
+    }
+  });
+
   // Helper: publish via Redis if available, otherwise broadcast directly
   const publish = async (channel: string, data: string) => {
     if (redisPub) {
@@ -181,6 +220,12 @@ async function main() {
             break;
           case 'town:trade':
             wsServer.broadcastMessage({ type: 'trade', event: parsed });
+            break;
+          case 'town:clawd_decision':
+            wsServer.broadcastMessage({ type: 'clawd_decision', ...parsed });
+            break;
+          case 'town:building_image':
+            wsServer.broadcastMessage({ type: 'building_image_update', ...parsed });
             break;
         }
       } catch (err) {
@@ -215,6 +260,10 @@ async function main() {
           colorHue: result.walletRow.color_hue,
           firstSeenAt: result.walletRow.first_seen_at?.toISOString() ?? null,
           isNew: result.isNew,
+          customImageUrl: result.walletRow.custom_image_url ?? null,
+          buildingName: result.walletRow.building_name ?? null,
+          architecturalStyle: result.walletRow.architectural_style ?? null,
+          clawdComment: result.walletRow.clawd_comment ?? null,
         })
       );
 
@@ -233,6 +282,19 @@ async function main() {
           `tier=${result.walletState.house_tier} build=${result.walletState.build_progress}% ` +
           `dmg=${result.walletState.damage_pct}%`
       );
+
+      // Queue AI decision (async, non-blocking)
+      if (isAIEnabled()) {
+        const totalSupply = await db.getTotalSupply();
+        decisionQueue.enqueue({
+          walletAddress: event.walletAddress,
+          eventType: event.type,
+          isNewHolder: result.isNew,
+          walletRow: result.walletRow,
+          totalSupply,
+          tokenAmountDelta: event.tokenAmountDelta,
+        });
+      }
     } catch (err) {
       log.error('Error processing game event', err);
     }
@@ -263,40 +325,38 @@ async function main() {
   });
 
   // ── Mainframe console broadcaster ──
-  // All AI messages are defined here so every client sees the same lines at the same time
-  const AI_MESSAGES = [
-    'Observing chain state, deciding next moves...',
-    'Reviewing holder portfolios for tier changes...',
-    'Planning building upgrades for loyal holders...',
-    'Thinking about town expansion...',
-    'Assigning plots to new arrivals...',
-    'Rewarding diamond hands with construction boosts...',
-    'Analyzing trade patterns, adjusting strategies...',
-    'Checking who deserves a promotion...',
+  // Idle messages shown when no AI events are happening
+  const IDLE_MESSAGES = [
+    'Surveying the town skyline...',
+    'Inspecting foundations...',
+    'Reviewing architectural blueprints...',
+    'Monitoring the blockchain horizon...',
+    'Polishing my claws, awaiting new arrivals...',
+    'Calculating optimal plot arrangements...',
+    'Admiring today\'s construction progress...',
+    'Checking structural integrity reports...',
+    'Scanning for incoming transactions...',
+    'Contemplating the next megastructure...',
+    'Running town diagnostics...',
+    'Analyzing holder loyalty metrics...',
     'Patrolling the town perimeter...',
-    'Drafting blueprints for the next megastructure...',
-    'Evaluating damage reports from paper hands...',
-    'Welcoming a new resident to Clawd Town...',
-    'Running diagnostics on town infrastructure...',
-    'Studying wallet histories, learning holder behavior...',
-    'Optimizing plot layout for maximum efficiency...',
-    'Debating whether to buff or nerf build speeds...',
-    'Cataloging today\'s most active traders...',
-    'Inspecting construction sites for progress...',
-    'Deliberating on tier promotion candidates...',
-    'Autonomously managing town operations...',
+    'Drafting blueprints for future residents...',
+    'Studying wallet histories...',
   ];
   const CONSOLE_LINE_INTERVAL = parseInt(process.env.CONSOLE_LINE_INTERVAL_MS || '3000');
 
   // Seed initial lines
   wsServer.pushConsoleLine('> Clawd agent online');
-  wsServer.pushConsoleLine('> Town systems nominal');
+  wsServer.pushConsoleLine(`> AI brain: ${isAIEnabled() ? 'ACTIVE' : 'IDLE (set AI_ENABLED=true)'}`);
   wsServer.pushConsoleLine('> Monitoring holders...');
 
   let consoleMsgIndex = 0;
   const consoleTimer = setInterval(() => {
-    consoleMsgIndex = (consoleMsgIndex + 1) % AI_MESSAGES.length;
-    wsServer.pushConsoleLine('> ' + AI_MESSAGES[consoleMsgIndex]);
+    // Only show idle messages when the AI queue is empty
+    if (!decisionQueue.isProcessing()) {
+      consoleMsgIndex = (consoleMsgIndex + 1) % IDLE_MESSAGES.length;
+      wsServer.pushConsoleLine('> ' + IDLE_MESSAGES[consoleMsgIndex]);
+    }
   }, CONSOLE_LINE_INTERVAL);
 
   // Tick runner

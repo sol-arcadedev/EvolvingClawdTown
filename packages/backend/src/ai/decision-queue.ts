@@ -1,0 +1,173 @@
+import { DB, WalletRow } from '../db/queries';
+import { makeClawdDecision, isAIEnabled, HolderProfile, ClawdDecision } from './clawd-agent';
+import { generateBuildingImage, isSDEnabled } from './image-generator';
+import { analyzeWallet } from './wallet-analyzer';
+import { classifyBehaviorPattern, getBehaviorTheme } from './clawd-prompt';
+import { walletPctOfSupply } from '../game/rules';
+import { log } from '../utils/logger';
+
+export interface DecisionRequest {
+  walletAddress: string;
+  eventType: 'buy' | 'sell' | 'transfer_in' | 'transfer_out';
+  isNewHolder: boolean;
+  walletRow: WalletRow;
+  totalSupply: bigint;
+  tokenAmountDelta: bigint;
+}
+
+export interface DecisionResult {
+  walletAddress: string;
+  decision: ClawdDecision;
+  imageUrl: string | null;
+}
+
+type DecisionCallback = (result: DecisionResult) => void;
+type ProgressCallback = (line: string) => void;
+
+export class DecisionQueue {
+  private queue: DecisionRequest[] = [];
+  private processing = false;
+  private onDecision: DecisionCallback | null = null;
+  private onProgress: ProgressCallback | null = null;
+  private db: DB;
+
+  constructor(db: DB) {
+    this.db = db;
+  }
+
+  setOnDecision(callback: DecisionCallback): void {
+    this.onDecision = callback;
+  }
+
+  setOnProgress(callback: ProgressCallback): void {
+    this.onProgress = callback;
+  }
+
+  private pushProgress(line: string): void {
+    if (this.onProgress) this.onProgress(line);
+  }
+
+  enqueue(request: DecisionRequest): void {
+    if (!isAIEnabled()) return;
+
+    // Deduplicate: remove existing pending request for same wallet
+    this.queue = this.queue.filter(r => r.walletAddress !== request.walletAddress);
+    this.queue.push(request);
+    log.info(`AI decision queued for ${request.walletAddress.slice(0, 8)}... (queue: ${this.queue.length})`);
+    this.processNext();
+  }
+
+  private async processNext(): Promise<void> {
+    if (this.processing || this.queue.length === 0) return;
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const request = this.queue.shift()!;
+      try {
+        await this.processDecision(request);
+      } catch (err) {
+        log.error(`Decision processing failed for ${request.walletAddress.slice(0, 8)}...:`, err);
+      }
+    }
+
+    this.processing = false;
+  }
+
+  private async processDecision(request: DecisionRequest): Promise<void> {
+    const { walletAddress, eventType, isNewHolder, walletRow, totalSupply, tokenAmountDelta } = request;
+
+    // Stage 1: Inspecting wallet
+    this.pushProgress(`> Inspecting wallet ${walletAddress.slice(0, 8)}...`);
+
+    // Fetch wallet personality (Helius, cached 24h) and trade stats (local DB) in parallel
+    const heliusApiKey = process.env.HELIUS_API_KEY;
+    const [walletPersonality, tradeStats] = await Promise.all([
+      analyzeWallet(walletAddress, heliusApiKey),
+      this.db.getWalletTradeStats(walletAddress),
+    ]);
+
+    // Stage 2: Profile summary
+    this.pushProgress(`> Profile: ${walletPersonality.personality} — ${tradeStats.buys} buys, ${tradeStats.sells} sells`);
+
+    // Build holder profile
+    const tokenBalance = BigInt(walletRow.token_balance);
+    const supplyPercent = Number(walletPctOfSupply(tokenBalance, totalSupply));
+    const holdDurationMs = Date.now() - walletRow.first_seen_at.getTime();
+
+    // Compute behavior pattern and theme from trade stats
+    const behaviorPattern = classifyBehaviorPattern(tradeStats, eventType, holdDurationMs);
+    const behaviorTheme = getBehaviorTheme(walletPersonality.personality, behaviorPattern, walletAddress);
+
+    // Stage 3: Behavior classification
+    this.pushProgress(`> Behavior: ${behaviorPattern} — Theme: ${behaviorTheme}`);
+
+    const profile: HolderProfile = {
+      walletAddress,
+      tokenBalance,
+      tier: walletRow.house_tier,
+      supplyPercent,
+      holdDurationMs,
+      eventType,
+      isNewHolder,
+      tradingPersonality: walletPersonality.personality,
+      existingBuildingName: walletRow.building_name,
+      existingStyle: walletRow.architectural_style,
+      damagePct: parseFloat(walletRow.damage_pct),
+      tokenAmountThisTx: tokenAmountDelta < 0n ? -tokenAmountDelta : tokenAmountDelta,
+      tradeStats,
+      behaviorPattern,
+      behaviorTheme,
+    };
+
+    // Stage 4: Consulting Gemini
+    this.pushProgress(`> Consulting the blueprints...`);
+
+    // Get Clawd's decision
+    const decision = await makeClawdDecision(profile);
+
+    // Stage 5: Verdict
+    this.pushProgress(`> Verdict: "${decision.building_name}" (${decision.architectural_style})`);
+
+    // Generate image (if SD is available)
+    let imageUrl: string | null = null;
+    if (isSDEnabled()) {
+      // Stage 6: Image generation
+      this.pushProgress(`> Rendering building image...`);
+      imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
+    }
+
+    // Store decision in DB
+    await this.db.updateWalletAI(walletAddress, {
+      building_name: decision.building_name,
+      architectural_style: decision.architectural_style,
+      clawd_comment: decision.clawd_comment,
+      image_prompt: decision.image_prompt,
+      custom_image_url: imageUrl,
+      image_generated_at: imageUrl ? new Date() : null,
+    });
+
+    await this.db.insertClawdDecision(walletAddress, eventType, decision, imageUrl);
+
+    log.info(
+      `AI decision complete: "${decision.building_name}" for ${walletAddress.slice(0, 8)}... ` +
+      `[image: ${imageUrl ? 'yes' : 'no'}]`
+    );
+
+    // Notify callback
+    if (this.onDecision) {
+      this.onDecision({
+        walletAddress,
+        decision,
+        imageUrl,
+      });
+    }
+  }
+
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  isProcessing(): boolean {
+    return this.processing;
+  }
+}
