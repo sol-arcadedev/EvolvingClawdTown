@@ -43,12 +43,12 @@ export class GameEngine {
 
     // New wallet — create first so trade_events FK is satisfied
     if (!wallet) {
-      const plot = await this.db.getNextPlot();
       const hue = colorHueFromAddress(event.walletAddress);
       const totalSupply = await this.db.getTotalSupply();
       const effectiveSupply = totalSupply + event.newBalance; // include this wallet's new balance
       const pct = walletPctOfSupply(event.newBalance, effectiveSupply);
       const tier = getTier(pct);
+      const plot = await this.db.getNextPlotForTier(tier);
 
       wallet = await this.db.createWallet(
         event.walletAddress,

@@ -50,6 +50,8 @@ IMAGE PROMPT RULES (strict):
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
 - Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
+- Do NOT include ground, terrain, floor, path, grass, dirt, or any surface beneath the building
+- The building must appear completely isolated with nothing beneath it
 - Keep under 30 words — just the building subject
 - Good example: "a tall stone tower with blue crystal windows and a pointed copper roof"
 - Bad example: "cyberpunk neon tower, isometric view, pixel art, transparent background"
@@ -99,6 +101,8 @@ IMAGE PROMPT RULES (strict):
 - Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
 - Keep under 30 words — just the damaged building subject
+- Do NOT include ground, terrain, floor, path, grass, dirt, or any surface beneath the building
+- The building must appear completely isolated with nothing beneath it
 - Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, overgrown vines, crumbling chimney`;
 
 export const CLAWD_HQ_PROMPT = `You are designing YOUR OWN castle — Clawd's personal palace, the crown jewel of Claude Town.
@@ -133,6 +137,8 @@ IMAGE PROMPT RULES (strict):
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
 - Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
+- Do NOT include ground, terrain, floor, path, grass, dirt, or any surface beneath the building
+- The building must appear completely isolated with nothing beneath it
 - Keep under 30 words — just the building subject
 - Good example: "a massive lobster-shaped castle with claw towers, shell-plated copper domes, antennae spires, and golden arched windows"`;
 

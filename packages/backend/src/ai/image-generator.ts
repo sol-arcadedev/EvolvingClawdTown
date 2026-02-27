@@ -6,8 +6,8 @@ import { log } from '../utils/logger';
 const SD_API_URL = process.env.SD_API_URL || 'http://127.0.0.1:7860';
 
 // LoRA trigger: <lora:pixelartredmond-1-5v:0.85> with trigger word "Pixel Art" / "PIXARFK"
-const STYLE_SUFFIX = '<lora:Isometric_Setting:0.95> <lora:pixelartredmond-1-5v:0.65> Isometric_Setting, PIXARFK, Pixel Art, isometric view, single building, plain solid white background, clean pixel art, 16-bit style, centered, game asset, isolated object';
-const NEGATIVE_PROMPT = '3d render, realistic, photograph, blurry, low quality, text, watermark, multiple buildings, multiple structures, tileset, sprite sheet, many objects, front view, side view, top down, first person, close-up, cropped, interior, zoomed in, detailed background, gradient, sky, clouds, sun, horizon, landscape, scenery, people, characters, ground texture, dirt, sand, desert';
+const STYLE_SUFFIX = '<lora:Isometric_Setting:0.95> <lora:pixelartredmond-1-5v:0.65> Isometric_Setting, PIXARFK, Pixel Art, isometric view, single building, plain solid white background, clean pixel art, 16-bit style, centered, game asset, isolated object, no ground, no floor, no terrain, floating building, nothing beneath';
+const NEGATIVE_PROMPT = '3d render, realistic, photograph, blurry, low quality, text, watermark, multiple buildings, multiple structures, tileset, sprite sheet, many objects, front view, side view, top down, first person, close-up, cropped, interior, zoomed in, detailed background, gradient, sky, clouds, sun, horizon, landscape, scenery, people, characters, ground texture, dirt, sand, desert, ground, floor, terrain, grass, path, pavement, road, platform, base, pedestal, foundation visible';
 
 const SD_SETTINGS = {
   width: 512,

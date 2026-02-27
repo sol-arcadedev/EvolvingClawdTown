@@ -109,6 +109,42 @@ export class DB {
     return DB.RESERVED_PLOTS.has(`${x},${y}`);
   }
 
+  // Tier → ring ranges for concentric zone placement
+  // Buffer zone (mainframe + reserved) ends at ring 3
+  private static readonly TIER_RING_RANGES: Record<number, [number, number]> = {
+    5: [4, 6],
+    4: [7, 10],
+    3: [11, 15],
+    2: [16, 21],
+    1: [22, 40],
+  };
+
+  async getNextPlotForTier(tier: number): Promise<{ x: number; y: number }> {
+    const range = DB.TIER_RING_RANGES[tier];
+    if (!range) return this.getNextPlot();
+
+    const [minRing, maxRing] = range;
+
+    // Search within tier's ring range first, then overflow outward
+    for (let ring = minRing; ring <= maxRing + 10; ring++) {
+      const slots = this.generateSpiralRing(ring);
+      for (const slot of slots) {
+        if (this.isReservedPlot(slot.x, slot.y)) continue;
+
+        const { rows: existing } = await this.pool.query(
+          'SELECT 1 FROM plot_grid WHERE x = $1 AND y = $2',
+          [slot.x, slot.y]
+        );
+        if (existing.length === 0) {
+          return slot;
+        }
+      }
+    }
+
+    // Fallback to general spiral
+    return this.getNextPlot();
+  }
+
   async getNextPlot(): Promise<{ x: number; y: number }> {
     // Spiral outward from (0,0), skipping reserved decorative positions
     const { rows } = await this.pool.query<{ max_dist: number }>(

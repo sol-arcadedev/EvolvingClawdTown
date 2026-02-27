@@ -11,6 +11,9 @@ import {
   ZOOM_MAX,
   PARTICLE_COUNT,
   PARTICLE_COLORS,
+  TIER_GROUND_COLORS,
+  TIER_GROUND_BORDER_COLORS,
+  GROUND_SIZE_FACTOR,
 } from './constants';
 import { getBuildingSprite, getMainframeSprite, getLightSprite, hsl, TIER_U } from './BuildingCache';
 
@@ -558,6 +561,28 @@ export default function TownCanvas() {
         }
 
         if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
+
+        // Ground diamond beneath building
+        const groundFill = TIER_GROUND_COLORS[b.tier];
+        if (groundFill) {
+          const r = GRID_SPACING * GROUND_SIZE_FACTOR;
+          ctx.globalAlpha = 0.4;
+          ctx.beginPath();
+          ctx.moveTo(b.wx, b.wy - r); // top
+          ctx.lineTo(b.wx + r, b.wy); // right
+          ctx.lineTo(b.wx, b.wy + r); // bottom
+          ctx.lineTo(b.wx - r, b.wy); // left
+          ctx.closePath();
+          ctx.fillStyle = groundFill;
+          ctx.fill();
+          const groundStroke = TIER_GROUND_BORDER_COLORS[b.tier];
+          if (groundStroke) {
+            ctx.strokeStyle = groundStroke;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        }
 
         // Transparency for under-construction / damaged
         const needAlpha = b.bp < 100 || b.dmg > 50;

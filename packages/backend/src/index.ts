@@ -110,7 +110,7 @@ async function seedHolders(db: DB, force = false) {
     const pct = walletPctOfSupply(balance, totalSupply);
     const tier = getTier(pct);
     const hue = colorHueFromAddress(ownerAddress);
-    const plot = await db.getNextPlot();
+    const plot = await db.getNextPlotForTier(tier);
     await db.createWallet(ownerAddress, balance, plot.x, plot.y, tier, hue);
     // Existing holders are already established — mark buildings as fully built
     await db.updateWallet(ownerAddress, { build_progress: 100 });

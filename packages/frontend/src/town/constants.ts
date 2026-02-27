@@ -53,6 +53,26 @@ export const MAINFRAME_PLOTS = [
   [-1, -1],
 ] as const;
 
+// Ground patch colors per tier (isometric diamond beneath each building)
+export const TIER_GROUND_COLORS: Record<number, string> = {
+  1: '#5C4033', // brown dirt
+  2: '#6B7B3E', // dry grass
+  3: '#707070', // cobblestone gray
+  4: '#8899AA', // polished stone
+  5: '#C0A060', // gold-trimmed marble
+};
+
+export const TIER_GROUND_BORDER_COLORS: Record<number, string> = {
+  1: '#7A5A48',
+  2: '#8B9B5E',
+  3: '#909090',
+  4: '#A8B9CA',
+  5: '#D8C080',
+};
+
+// Fraction of GRID_SPACING for ground diamond radius
+export const GROUND_SIZE_FACTOR = 0.4;
+
 // Effects
 export const PARTICLE_COUNT = 15;
 export const PARTICLE_COLORS = [0x00fff5, 0xff00c8, 0x00ff88];
