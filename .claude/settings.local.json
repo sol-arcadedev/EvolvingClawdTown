@@ -49,7 +49,9 @@
       "WebFetch(domain:discuss.google.dev)",
       "WebFetch(domain:github.com)",
       "Bash(nvidia-smi:*)",
-      "Bash(git clone:*)"
+      "Bash(git clone:*)",
+      "WebFetch(domain:www.helius.dev)",
+      "Bash(npm run:*)"
     ]
   }
 }
