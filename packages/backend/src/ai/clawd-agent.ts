@@ -5,8 +5,10 @@ import {
   CLAWD_SYSTEM_PROMPT,
   BUILDING_DECISION_PROMPT,
   DAMAGE_DECISION_PROMPT,
+  CLAWD_HQ_PROMPT,
   BehaviorPattern,
 } from './clawd-prompt';
+import { CLAWD_HQ_ADDRESS } from '../constants';
 
 export interface HolderProfile {
   walletAddress: string;
@@ -143,10 +145,17 @@ function parseDecisionJSON(raw: string): ClawdDecision {
 }
 
 export async function makeClawdDecision(profile: HolderProfile): Promise<ClawdDecision> {
-  const isSell = profile.eventType === 'sell';
-  const promptTemplate = isSell ? DAMAGE_DECISION_PROMPT : BUILDING_DECISION_PROMPT;
-  const profileText = buildHolderProfileText(profile);
-  const userPrompt = promptTemplate.replace('{HOLDER_PROFILE}', profileText);
+  const isHQ = profile.walletAddress === CLAWD_HQ_ADDRESS;
+  let userPrompt: string;
+
+  if (isHQ) {
+    userPrompt = CLAWD_HQ_PROMPT;
+  } else {
+    const isSell = profile.eventType === 'sell';
+    const promptTemplate = isSell ? DAMAGE_DECISION_PROMPT : BUILDING_DECISION_PROMPT;
+    const profileText = buildHolderProfileText(profile);
+    userPrompt = promptTemplate.replace('{HOLDER_PROFILE}', profileText);
+  }
 
   let lastError: Error | null = null;
 

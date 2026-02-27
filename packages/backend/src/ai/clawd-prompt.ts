@@ -101,6 +101,38 @@ IMAGE PROMPT RULES (strict):
 - Keep under 30 words — just the damaged building subject
 - Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, overgrown vines, crumbling chimney`;
 
+export const CLAWD_HQ_PROMPT = `You are designing YOUR OWN headquarters — Clawd's Architect HQ, the nerve center of Claude Town.
+
+This is not a holder's building. This is YOUR personal command center, workshop, and architectural studio. It sits at the exact center of town (plot 0,0) and every beam trace in the town connects back to it.
+
+Design a building that reflects:
+- A lobster architect's grand workshop/command center
+- The brain of an AI that designs an entire town
+- Blueprints, drafting tables, architectural models scattered about
+- Obsidian, dark stone, glowing circuit-like inlays, copper fixtures
+- Imposing but creative — part fortress, part studio, part observatory
+- It should feel like the most important building in town
+
+This is a tier 5 (maximum) building — make it massive and awe-inspiring.
+
+Respond with this exact JSON structure:
+{
+  "building_name": "A creative name for YOUR headquarters (2-4 words)",
+  "architectural_style": "Brief style description",
+  "description": "1-2 sentence description of the building's appearance",
+  "image_prompt": "A short description of the building subject ONLY (see rules below)",
+  "clawd_comment": "A proud in-character quip from Clawd about his own HQ (1 sentence)",
+  "evolution_hint": "How the HQ might evolve as the town grows"
+}
+
+IMAGE PROMPT RULES (strict):
+- ONLY describe the building itself: shape, size, materials, colors, architectural features
+- Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
+- Do NOT include background instructions (transparent, white, etc.)
+- Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
+- Keep under 30 words — just the building subject
+- Good example: "a massive obsidian tower with copper-framed blueprint windows and a glowing lobster claw weathervane"`;
+
 // Architectural themes to inject variety
 export const ARCHITECTURE_THEMES = [
   'weathered stone',

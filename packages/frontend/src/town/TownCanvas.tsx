@@ -25,6 +25,9 @@ import { getBuildingSprite, getMainframeSprite, getLightSprite, hsl, TIER_U } fr
  *    5. Cached HSL colour strings
  * ─────────────────────────────────────────────────────────── */
 
+// Clawd's HQ address — special wallet at plot (0,0)
+const CLAWD_HQ_ADDRESS = 'clawd-architect-hq';
+
 // Reserved mainframe zone
 const RESERVED = new Set<string>();
 for (const [x, y] of MAINFRAME_PLOTS) RESERVED.add(`${x},${y}`);
@@ -199,7 +202,9 @@ interface Bld {
   customImageUrl?: string | null;
 }
 
-function shouldInclude(w: WalletState): boolean {
+function shouldInclude(addr: string, w: WalletState): boolean {
+  // Always include Clawd HQ even though it's on a reserved plot with zero balance
+  if (addr === CLAWD_HQ_ADDRESS) return true;
   if (RESERVED.has(`${w.plotX},${w.plotY}`)) return false;
   if (w.tokenBalance === '0' || Number(w.tokenBalance) <= 0) return false;
   return true;
@@ -400,7 +405,7 @@ export default function TownCanvas() {
       gridIndex.clear();
       const wallets = useTownStore.getState().wallets;
       for (const [addr, w] of wallets) {
-        if (!shouldInclude(w)) continue;
+        if (!shouldInclude(addr, w)) continue;
         const bld = makeBld(addr, w);
         bldMap.set(addr, bld);
         gridIndex.set(`${w.plotX},${w.plotY}`, bld);
@@ -422,7 +427,7 @@ export default function TownCanvas() {
       for (const addr of changed) {
         const w = wallets.get(addr);
         const existing = bldMap.get(addr);
-        const keep = w != null && shouldInclude(w);
+        const keep = w != null && shouldInclude(addr, w);
 
         if (!keep) {
           // Remove
@@ -522,12 +527,33 @@ export default function TownCanvas() {
       const mf = getMainframeSprite();
       let mfDrawn = false;
 
+      // Check if Clawd HQ has a custom AI image to replace the static mainframe sprite
+      const hqBld = bldMap.get(CLAWD_HQ_ADDRESS);
+      const hqImg = hqBld ? getAIImage(CLAWD_HQ_ADDRESS, hqBld.customImageUrl) : null;
+
+      const drawMainframe = () => {
+        if (hqImg) {
+          // Render Clawd's AI-generated HQ image at mainframe position
+          const baseSize = PLOT_STRIDE * (TIER_SCALE[5] ?? 0.5) * 2;
+          const aspect = hqImg.naturalWidth / hqImg.naturalHeight;
+          const drawW = baseSize * aspect;
+          const drawH = baseSize;
+          ctx.drawImage(hqImg, MF_WX - drawW / 2, MF_WY - drawH + 4, drawW, drawH);
+        } else {
+          // Fallback to static mainframe sprite
+          ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
+        }
+      };
+
       for (let i = 0; i < sortedBlds.length; i++) {
         const b = sortedBlds[i];
 
+        // Skip Clawd HQ from normal building rendering — it's drawn as the mainframe
+        if (b.addr === CLAWD_HQ_ADDRESS) continue;
+
         // Insert mainframe at correct depth position
         if (!mfDrawn && b.depth > MF_DEPTH) {
-          ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
+          drawMainframe();
           mfDrawn = true;
         }
 
@@ -594,7 +620,7 @@ export default function TownCanvas() {
       }
 
       if (!mfDrawn) {
-        ctx.drawImage(mf.src, MF_WX + mf.ox, MF_WY + mf.oy, mf.w, mf.h);
+        drawMainframe();
       }
 
       // ── DATA PACKETS + PARTICLES — only when idle ──

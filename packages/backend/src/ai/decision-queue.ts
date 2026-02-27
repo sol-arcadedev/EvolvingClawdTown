@@ -6,6 +6,7 @@ import { classifyBehaviorPattern, getBehaviorTheme } from './clawd-prompt';
 import { walletPctOfSupply } from '../game/rules';
 import { probationMap } from '../game/engine';
 import { log } from '../utils/logger';
+import { CLAWD_HQ_ADDRESS } from '../constants';
 
 export interface DecisionRequest {
   walletAddress: string;
@@ -86,6 +87,38 @@ export class DecisionQueue {
     this.processNext();
   }
 
+  /** Queue Clawd's own HQ design as the first item in the queue */
+  queueClawdHQ(): void {
+    if (!isAIEnabled()) return;
+    (async () => {
+      try {
+        const wallet = await this.db.getWallet(CLAWD_HQ_ADDRESS);
+        if (!wallet) {
+          log.warn('Clawd HQ wallet not found — skipping HQ design');
+          return;
+        }
+        if (wallet.building_name) {
+          log.info('Clawd HQ already has a building — skipping');
+          return;
+        }
+        log.info('Queuing Clawd HQ design (first priority)...');
+        const request: DecisionRequest = {
+          walletAddress: CLAWD_HQ_ADDRESS,
+          eventType: 'buy',
+          isNewHolder: true,
+          walletRow: wallet,
+          totalSupply: 0n,
+          tokenAmountDelta: 0n,
+        };
+        // Prepend to front of queue so it's processed first
+        this.queue.unshift(request);
+        this.processNext();
+      } catch (err) {
+        log.error('Failed to queue Clawd HQ design:', err);
+      }
+    })();
+  }
+
   /** Queue building designs for all holders that don't have buildings yet. Runs async, doesn't block. */
   queueInitialBuildings(): void {
     if (!isAIEnabled()) return;
@@ -129,8 +162,13 @@ export class DecisionQueue {
 
   private async processDecision(request: DecisionRequest): Promise<void> {
     const { walletAddress, eventType, isNewHolder, walletRow, totalSupply, tokenAmountDelta } = request;
+    const isClawdHQ = walletAddress === CLAWD_HQ_ADDRESS;
 
-    // Check bot probation
+    // Check bot probation (skip for Clawd HQ — no real wallet)
+    if (isClawdHQ) {
+      return this.processClawdHQDecision(request);
+    }
+
     const probationExpiry = probationMap.get(walletAddress);
     if (probationExpiry !== undefined) {
       const remaining = probationExpiry - Date.now();
@@ -256,6 +294,82 @@ export class DecisionQueue {
       this.onDecision({
         walletAddress,
         eventType,
+        decision,
+        imageUrl,
+        holderProfile: holderProfileSummary,
+      });
+    }
+  }
+
+  private async processClawdHQDecision(request: DecisionRequest): Promise<void> {
+    const { walletAddress, walletRow } = request;
+
+    this.pushProgress('> Clawd is designing his own Architect HQ...');
+
+    const profile: HolderProfile = {
+      walletAddress,
+      tokenBalance: 0n,
+      tier: 5,
+      supplyPercent: 0,
+      holdDurationMs: 0,
+      eventType: 'buy',
+      isNewHolder: true,
+      tradingPersonality: 'Architect AI',
+      existingBuildingName: null,
+      existingStyle: null,
+      damagePct: 0,
+      tokenAmountThisTx: 0n,
+      tradeStats: {
+        totalBuys: 0, totalSells: 0,
+        totalTokenBought: 0n, totalTokenSold: 0n,
+        largestSingleBuy: 0n, largestSingleSell: 0n,
+        tradesLast24h: 0, tradesLast7d: 0, decisionCount: 0,
+      },
+      behaviorPattern: 'Stone Foundation',
+      behaviorTheme: 'obsidian command panels and glowing circuit inlays',
+    };
+
+    this.pushProgress('> Consulting the blueprints for the HQ...');
+    const decision = await makeClawdDecision(profile);
+
+    this.pushProgress(`> HQ Verdict: "${decision.building_name}" (${decision.architectural_style})`);
+
+    let imageUrl: string | null = null;
+    if (isSDEnabled()) {
+      this.pushProgress('> Rendering Clawd HQ image...');
+      imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
+    }
+
+    await this.db.updateWalletAI(walletAddress, {
+      building_name: decision.building_name,
+      architectural_style: decision.architectural_style,
+      clawd_comment: decision.clawd_comment,
+      image_prompt: decision.image_prompt,
+      custom_image_url: imageUrl,
+      image_generated_at: imageUrl ? new Date() : null,
+    });
+
+    const holderProfileSummary: HolderProfileSummary = {
+      walletAddress: 'Clawd HQ',
+      tier: 5,
+      supplyPercent: 0,
+      eventType: 'buy',
+      tradingPersonality: 'Architect AI',
+      behaviorPattern: 'Stone Foundation',
+      behaviorTheme: 'obsidian command panels and glowing circuit inlays',
+      tradeStats: { buys: 0, sells: 0, volume: 0 },
+      isNewHolder: true,
+      existingBuildingName: null,
+    };
+
+    await this.db.insertClawdDecision(walletAddress, 'buy', decision, imageUrl, holderProfileSummary);
+
+    log.info(`Clawd HQ design complete: "${decision.building_name}" [image: ${imageUrl ? 'yes' : 'no'}]`);
+
+    if (this.onDecision) {
+      this.onDecision({
+        walletAddress,
+        eventType: 'buy',
         decision,
         imageUrl,
         holderProfile: holderProfileSummary,

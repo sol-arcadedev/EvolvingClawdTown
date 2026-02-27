@@ -19,6 +19,7 @@ import { TownWebSocketServer } from './api/ws';
 import { log } from './utils/logger';
 import { DecisionQueue, DecisionResult } from './ai/decision-queue';
 import { isAIEnabled } from './ai/clawd-agent';
+import { CLAWD_HQ_ADDRESS } from './constants';
 
 interface HeliusTokenAccount {
   address: string;
@@ -118,6 +119,16 @@ async function seedHolders(db: DB, force = false) {
   }
 
   log.info(`Seed complete — created ${created} wallets`);
+}
+
+async function seedClawdHQ(db: DB) {
+  const existing = await db.getWallet(CLAWD_HQ_ADDRESS);
+  if (existing) return;
+
+  log.info('Seeding Clawd Architect HQ at plot (0,0)...');
+  await db.createWallet(CLAWD_HQ_ADDRESS, 0n, 0, 0, 5, 180);
+  await db.updateWallet(CLAWD_HQ_ADDRESS, { build_progress: 100 });
+  log.info('Clawd HQ wallet created');
 }
 
 const startedAt = Date.now();
@@ -397,6 +408,7 @@ async function main() {
     tickRunner,
     handleGameEvent,
     seedHolders: (force) => seedHolders(db, force),
+    seedClawdHQ: () => seedClawdHQ(db),
     decisionQueue,
     startedAt,
   }));
@@ -404,7 +416,11 @@ async function main() {
   // Seed holders from Helius if DB is empty (first run with new token)
   await seedHolders(db);
 
-  // Queue initial building designs for any holders without buildings
+  // Seed Clawd's own HQ at plot (0,0)
+  await seedClawdHQ(db);
+
+  // Queue Clawd HQ design first, then holder buildings
+  decisionQueue.queueClawdHQ();
   decisionQueue.queueInitialBuildings();
 
   // Start server

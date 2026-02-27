@@ -15,6 +15,7 @@ export interface AdminDeps {
   tickRunner: TickRunner;
   handleGameEvent: (event: GameEvent) => void;
   seedHolders: (force?: boolean) => Promise<void>;
+  seedClawdHQ: () => Promise<void>;
   decisionQueue: DecisionQueue;
   startedAt: number;
 }
@@ -154,10 +155,14 @@ export function createAdminRouter(deps: AdminDeps): Router {
             deps.setChainListener(newListener);
           }
 
+          // Seed Clawd HQ at plot (0,0)
+          await deps.seedClawdHQ();
+
           log.info(`[ADMIN] Seed complete for ${mint}`);
           await broadcastWalletsDrip(deps, mint);
 
-          // Queue Clawd building designs for holders without buildings
+          // Queue Clawd HQ first, then holder buildings
+          deps.decisionQueue.queueClawdHQ();
           deps.decisionQueue.queueInitialBuildings();
         } catch (err) {
           log.error('[ADMIN] Background seed/listener failed:', err);
@@ -173,6 +178,7 @@ export function createAdminRouter(deps: AdminDeps): Router {
   router.post('/api/admin/reseed', async (_req: Request, res: Response) => {
     try {
       await deps.seedHolders(true);
+      await deps.seedClawdHQ();
 
       log.info('[ADMIN] Re-seed complete');
       res.json({ success: true, message: 'Re-seed complete' });
@@ -182,7 +188,8 @@ export function createAdminRouter(deps: AdminDeps): Router {
         log.error('[ADMIN] Drip broadcast failed:', err)
       );
 
-      // Queue Clawd building designs for holders without buildings
+      // Queue Clawd HQ first, then holder buildings
+      deps.decisionQueue.queueClawdHQ();
       deps.decisionQueue.queueInitialBuildings();
     } catch (err) {
       log.error('[ADMIN] Re-seed failed:', err);
