@@ -220,6 +220,91 @@ export function isSDEnabled(): boolean {
   return enabled;
 }
 
+// ── GROUND TEXTURE GENERATION ──
+
+const GROUND_PROMPTS: Record<number, string> = {
+  1: 'circular patch of brown dirt with small rocks and weeds',
+  2: 'circular patch of dry grass with wildflowers and pebbles',
+  3: 'circular cobblestone plaza with worn gray stones',
+  4: 'circular polished stone platform with carved edges',
+  5: 'circular ornate marble and gold platform with intricate patterns',
+};
+
+const GROUND_STYLE_SUFFIX =
+  '<lora:pixelartredmond-1-5v:0.65> PIXARFK, Pixel Art, isometric pixel art, circular shape, no building, top-down slight angle, game asset, plain solid white background, isolated object, centered';
+
+const GROUND_NEGATIVE_PROMPT =
+  '3d render, realistic, photograph, blurry, low quality, text, watermark, building, house, structure, character, person, side view, front view, multiple objects, tileset, sprite sheet';
+
+export async function generateGroundTexture(tier: number): Promise<string | null> {
+  const prompt = GROUND_PROMPTS[tier];
+  if (!prompt) return null;
+
+  const fullPrompt = `${prompt}, ${GROUND_STYLE_SUFFIX}`;
+  const body = {
+    prompt: fullPrompt,
+    negative_prompt: GROUND_NEGATIVE_PROMPT,
+    ...SD_SETTINGS,
+    batch_size: 1,
+    n_iter: 1,
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const response = await fetch(`${SD_API_URL}/sdapi/v1/txt2img`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      log.error(`SD API returned ${response.status} for ground tier ${tier}: ${await response.text()}`);
+      return null;
+    }
+
+    const data: any = await response.json();
+    const images: string[] = data.images;
+    if (!images || images.length === 0) {
+      log.error(`SD API returned no images for ground tier ${tier}`);
+      return null;
+    }
+
+    const rawBuffer = Buffer.from(images[0], 'base64');
+    const imageBuffer = await removeBackground(rawBuffer);
+    const filename = `tier-ground-${tier}.png`;
+    const filepath = path.join(OUTPUT_DIR, filename);
+
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    fs.writeFileSync(filepath, imageBuffer);
+
+    const relativeUrl = `/generated/${filename}`;
+    log.info(`Generated ground texture for tier ${tier} → ${relativeUrl}`);
+    return relativeUrl;
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      log.error(`SD API request timed out for ground tier ${tier}`);
+    } else {
+      log.error(`Ground texture generation failed for tier ${tier}:`, err);
+    }
+    return null;
+  }
+}
+
+export async function generateAllGroundTextures(): Promise<string[]> {
+  const urls: string[] = [];
+  for (let tier = 1; tier <= 5; tier++) {
+    const url = await generateGroundTexture(tier);
+    if (url) urls.push(url);
+  }
+  return urls;
+}
+
 export async function checkSDHealth(): Promise<boolean> {
   try {
     const controller = new AbortController();

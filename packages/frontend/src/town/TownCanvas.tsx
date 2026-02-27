@@ -173,6 +173,31 @@ function getAIImage(addr: string, url: string | null | undefined): HTMLImageElem
   return null;
 }
 
+// ── GROUND TEXTURE CACHE ──
+const groundImageCache = new Map<number, HTMLImageElement | null>(); // tier → loaded image or null
+const groundImageLoading = new Set<number>();
+
+function getGroundImage(tier: number): HTMLImageElement | null {
+  const cached = groundImageCache.get(tier);
+  if (cached !== undefined) return cached;
+
+  if (groundImageLoading.has(tier)) return null;
+
+  groundImageLoading.add(tier);
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    groundImageCache.set(tier, img);
+    groundImageLoading.delete(tier);
+  };
+  img.onerror = () => {
+    groundImageCache.set(tier, null);
+    groundImageLoading.delete(tier);
+  };
+  img.src = `/generated/tier-ground-${tier}.png`;
+  return null;
+}
+
 // Deterministic jitter so plots aren't on a rigid grid
 // Returns a value in [-1, 1] based on a simple hash of plot coords
 const JITTER_STRENGTH = GRID_SPACING * 0.25; // max offset per axis
@@ -562,26 +587,34 @@ export default function TownCanvas() {
 
         if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
 
-        // Ground diamond beneath building
-        const groundFill = TIER_GROUND_COLORS[b.tier];
-        if (groundFill) {
-          const r = GRID_SPACING * GROUND_SIZE_FACTOR;
-          ctx.globalAlpha = 0.4;
-          ctx.beginPath();
-          ctx.moveTo(b.wx, b.wy - r); // top
-          ctx.lineTo(b.wx + r, b.wy); // right
-          ctx.lineTo(b.wx, b.wy + r); // bottom
-          ctx.lineTo(b.wx - r, b.wy); // left
-          ctx.closePath();
-          ctx.fillStyle = groundFill;
-          ctx.fill();
-          const groundStroke = TIER_GROUND_BORDER_COLORS[b.tier];
-          if (groundStroke) {
-            ctx.strokeStyle = groundStroke;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-          }
+        // Ground beneath building — SD texture or diamond fallback
+        const r = GRID_SPACING * GROUND_SIZE_FACTOR;
+        const groundImg = getGroundImage(b.tier);
+        if (groundImg) {
+          const drawSize = r * 2;
+          ctx.globalAlpha = 0.5;
+          ctx.drawImage(groundImg, b.wx - drawSize / 2, b.wy - drawSize / 2, drawSize, drawSize);
           ctx.globalAlpha = 1;
+        } else {
+          const groundFill = TIER_GROUND_COLORS[b.tier];
+          if (groundFill) {
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            ctx.moveTo(b.wx, b.wy - r); // top
+            ctx.lineTo(b.wx + r, b.wy); // right
+            ctx.lineTo(b.wx, b.wy + r); // bottom
+            ctx.lineTo(b.wx - r, b.wy); // left
+            ctx.closePath();
+            ctx.fillStyle = groundFill;
+            ctx.fill();
+            const groundStroke = TIER_GROUND_BORDER_COLORS[b.tier];
+            if (groundStroke) {
+              ctx.strokeStyle = groundStroke;
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+          }
         }
 
         // Transparency for under-construction / damaged
