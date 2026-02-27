@@ -167,6 +167,26 @@ function getAIImage(addr: string, url: string | null | undefined): HTMLImageElem
   return null;
 }
 
+// Deterministic jitter so plots aren't on a rigid grid
+// Returns a value in [-1, 1] based on a simple hash of plot coords
+const JITTER_STRENGTH = GRID_SPACING * 0.25; // max offset per axis
+
+function plotJitter(plotX: number, plotY: number): [number, number] {
+  // Simple hash from plot coords → two pseudo-random offsets
+  let h = (plotX * 374761 + plotY * 668265) | 0;
+  h = ((h >> 16) ^ h) * 0x45d9f3b | 0;
+  h = ((h >> 16) ^ h) * 0x45d9f3b | 0;
+  const jx = ((h & 0xffff) / 0xffff - 0.5) * 2 * JITTER_STRENGTH;
+  h = ((h >> 8) ^ (plotX * 198491 + plotY * 931773)) * 0x45d9f3b | 0;
+  const jy = ((h & 0xffff) / 0xffff - 0.5) * 2 * JITTER_STRENGTH;
+  return [jx, jy];
+}
+
+function plotToWorld(plotX: number, plotY: number): [number, number] {
+  const [jx, jy] = plotJitter(plotX, plotY);
+  return [plotX * GRID_SPACING + jx, plotY * GRID_SPACING + jy];
+}
+
 // Building data for rendering
 interface Bld {
   wx: number; wy: number;
@@ -186,8 +206,7 @@ function shouldInclude(w: WalletState): boolean {
 }
 
 function makeBld(addr: string, w: WalletState): Bld {
-  const wx = w.plotX * GRID_SPACING;
-  const wy = w.plotY * GRID_SPACING;
+  const [wx, wy] = plotToWorld(w.plotX, w.plotY);
   const tier = Math.min(w.houseTier, 5);
   return {
     wx, wy,
@@ -368,8 +387,7 @@ export default function TownCanvas() {
     useTownStore.getState().setLocateHouse((address: string) => {
       const w = useTownStore.getState().wallets.get(address);
       if (!w) return;
-      const tx = w.plotX * GRID_SPACING;
-      const ty = w.plotY * GRID_SPACING;
+      const [tx, ty] = plotToWorld(w.plotX, w.plotY);
       camScale = 1.2;
       camX = -tx * camScale;
       camY = -ty * camScale;
@@ -424,8 +442,7 @@ export default function TownCanvas() {
           structural = true;
         } else {
           // Update in-place
-          const newWx = w.plotX * GRID_SPACING;
-          const newWy = w.plotY * GRID_SPACING;
+          const [newWx, newWy] = plotToWorld(w.plotX, w.plotY);
           if (existing.wx !== newWx || existing.wy !== newWy) {
             gridIndex.delete(`${existing.plotX},${existing.plotY}`);
             existing.wx = newWx;
