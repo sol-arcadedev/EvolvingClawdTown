@@ -12,6 +12,11 @@ export interface WalletState {
   firstSeenAt?: string;
   lastUpdatedAt?: string;
   isNew?: boolean;
+  // AI-generated fields
+  customImageUrl?: string | null;
+  buildingName?: string | null;
+  architecturalStyle?: string | null;
+  clawdComment?: string | null;
 }
 
 export interface TradeEvent {
@@ -26,7 +31,9 @@ export type WsMessage =
   | { type: 'wallet_update'; wallet: WalletState }
   | { type: 'tick'; updatedCount: number; timestamp: number }
   | { type: 'trade'; event: TradeEvent }
-  | { type: 'console_line'; line: string };
+  | { type: 'console_line'; line: string }
+  | { type: 'clawd_decision'; walletAddress: string; buildingName: string; architecturalStyle: string; clawdComment: string }
+  | { type: 'building_image_update'; walletAddress: string; imageUrl: string; buildingName: string };
 
 export interface SpriteConfig {
   base: string;

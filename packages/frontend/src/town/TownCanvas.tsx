@@ -138,6 +138,34 @@ function computeLights(addr: string, tier: number): BldLight[] {
 
 const EMPTY_LIGHTS: BldLight[] = [];
 
+// ── AI IMAGE CACHE ──
+const aiImageCache = new Map<string, HTMLImageElement | null>(); // addr → loaded image or null (loading/failed)
+const aiImageLoading = new Set<string>(); // addresses currently loading
+
+function getAIImage(addr: string, url: string | null | undefined): HTMLImageElement | null {
+  if (!url) return null;
+
+  const cached = aiImageCache.get(addr);
+  if (cached !== undefined) return cached; // null = failed/loading, Image = ready
+
+  if (aiImageLoading.has(addr)) return null;
+
+  // Start loading
+  aiImageLoading.add(addr);
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    aiImageCache.set(addr, img);
+    aiImageLoading.delete(addr);
+  };
+  img.onerror = () => {
+    aiImageCache.set(addr, null); // mark as failed
+    aiImageLoading.delete(addr);
+  };
+  img.src = url;
+  return null;
+}
+
 // Building data for rendering
 interface Bld {
   wx: number; wy: number;
@@ -147,6 +175,7 @@ interface Bld {
   addr: string;
   depth: number; // sort key for painter's algorithm
   lights: BldLight[];
+  customImageUrl?: string | null;
 }
 
 function shouldInclude(w: WalletState): boolean {
@@ -166,6 +195,7 @@ function makeBld(addr: string, w: WalletState): Bld {
     bp: w.buildProgress, dmg: w.damagePct, addr,
     depth: wx + wy,
     lights: computeLights(addr, tier),
+    customImageUrl: w.customImageUrl,
   };
 }
 
@@ -413,6 +443,7 @@ export default function TownCanvas() {
           existing.hue = w.colorHue;
           existing.bp = w.buildProgress;
           existing.dmg = w.damagePct;
+          existing.customImageUrl = w.customImageUrl;
         }
       }
 
@@ -494,14 +525,26 @@ export default function TownCanvas() {
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.6);
           ctx.fillRect(b.wx - 2.5, b.wy - 2.5, 5, 5);
         } else {
-          const { src, bbox, u } = getBuildingSprite(b.tier, b.hue);
-          ctx.drawImage(
-            src,
-            b.wx + bbox.minX * u,
-            b.wy + bbox.minY * u,
-            (bbox.maxX - bbox.minX) * u,
-            (bbox.maxY - bbox.minY) * u,
-          );
+          // Try AI-generated image first
+          const aiImg = getAIImage(b.addr, b.customImageUrl);
+          if (aiImg) {
+            // Scale AI image to fit isometric cell (proportional to tier)
+            const baseSize = 30 + b.tier * 12; // scale with tier
+            const aspect = aiImg.naturalWidth / aiImg.naturalHeight;
+            const drawW = baseSize * aspect;
+            const drawH = baseSize;
+            ctx.drawImage(aiImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
+          } else {
+            // Default sprite
+            const { src, bbox, u } = getBuildingSprite(b.tier, b.hue);
+            ctx.drawImage(
+              src,
+              b.wx + bbox.minX * u,
+              b.wy + bbox.minY * u,
+              (bbox.maxX - bbox.minX) * u,
+              (bbox.maxY - bbox.minY) * u,
+            );
+          }
         }
 
         if (needAlpha) ctx.globalAlpha = 1;

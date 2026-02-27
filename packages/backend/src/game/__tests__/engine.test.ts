@@ -19,6 +19,12 @@ function makeWalletRow(overrides: Partial<WalletRow> = {}): WalletRow {
     color_hue: 180,
     first_seen_at: new Date(),
     last_updated_at: new Date(),
+    custom_image_url: null,
+    building_name: null,
+    architectural_style: null,
+    clawd_comment: null,
+    image_prompt: null,
+    image_generated_at: null,
     ...overrides,
   };
 }

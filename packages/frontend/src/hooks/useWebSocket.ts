@@ -62,6 +62,17 @@ export function useWebSocket(url: string) {
             break;
           case 'tick':
             break;
+          case 'clawd_decision':
+            useTownStore.getState().addConsoleLine(`> ${msg.clawdComment}`);
+            useTownStore.getState().applyClawdDecision(msg.walletAddress, {
+              buildingName: msg.buildingName,
+              architecturalStyle: msg.architecturalStyle,
+              clawdComment: msg.clawdComment,
+            });
+            break;
+          case 'building_image_update':
+            useTownStore.getState().applyBuildingImage(msg.walletAddress, msg.imageUrl);
+            break;
         }
       } catch (err) {
         console.error('WebSocket message parse error:', err);

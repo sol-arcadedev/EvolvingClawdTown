@@ -17,6 +17,11 @@ function walletToJson(w: WalletRow) {
     colorHue: w.color_hue,
     firstSeenAt: w.first_seen_at.toISOString(),
     lastUpdatedAt: w.last_updated_at.toISOString(),
+    // AI-generated fields
+    customImageUrl: w.custom_image_url ?? null,
+    buildingName: w.building_name ?? null,
+    architecturalStyle: w.architectural_style ?? null,
+    clawdComment: w.clawd_comment ?? null,
   };
 }
 
@@ -96,6 +101,25 @@ export function createRestRouter(db: DB): Router {
       res.json(stats);
     } catch (err) {
       console.error('GET /api/stats error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  router.get('/api/clawd/log', async (_req: Request, res: Response) => {
+    try {
+      const decisions = await db.getRecentClawdDecisions(50);
+      res.json({
+        decisions: decisions.map((d) => ({
+          id: d.id,
+          walletAddress: d.wallet_address,
+          eventType: d.event_type,
+          decision: d.decision_json,
+          imageUrl: d.image_url,
+          createdAt: d.created_at.toISOString(),
+        })),
+      });
+    } catch (err) {
+      console.error('GET /api/clawd/log error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });

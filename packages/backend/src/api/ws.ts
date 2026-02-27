@@ -5,7 +5,7 @@ import { DB } from '../db/queries';
 import { log } from '../utils/logger';
 
 export interface WsMessage {
-  type: 'snapshot' | 'wallet_update' | 'tick' | 'trade' | 'console_line';
+  type: 'snapshot' | 'wallet_update' | 'tick' | 'trade' | 'console_line' | 'clawd_decision' | 'building_image_update';
   [key: string]: any;
 }
 
@@ -54,7 +54,7 @@ export class TownWebSocketServer {
       });
 
       this.redisSub.connect().then(() => {
-        this.redisSub?.subscribe('town:updates', 'town:tick', 'town:trade', 'town:console');
+        this.redisSub?.subscribe('town:updates', 'town:tick', 'town:trade', 'town:console', 'town:clawd_decision', 'town:building_image');
         log.info('Redis pub/sub connected');
       }).catch(() => {
         log.warn('Redis connection failed, running without pub/sub');
@@ -82,6 +82,12 @@ export class TownWebSocketServer {
               wsMessage = { type: 'console_line', line: parsed.line };
               break;
             }
+            case 'town:clawd_decision':
+              wsMessage = { type: 'clawd_decision', ...JSON.parse(message) };
+              break;
+            case 'town:building_image':
+              wsMessage = { type: 'building_image_update', ...JSON.parse(message) };
+              break;
             default:
               return;
           }
@@ -124,6 +130,10 @@ export class TownWebSocketServer {
             boostExpiresAt: w.boost_expires_at?.toISOString() ?? null,
             colorHue: w.color_hue,
             firstSeenAt: w.first_seen_at.toISOString(),
+            customImageUrl: w.custom_image_url ?? null,
+            buildingName: w.building_name ?? null,
+            architecturalStyle: w.architectural_style ?? null,
+            clawdComment: w.clawd_comment ?? null,
           })),
           consoleLines: this.consoleLines,
           tokenMint: process.env.TOKEN_MINT_ADDRESS ?? '',

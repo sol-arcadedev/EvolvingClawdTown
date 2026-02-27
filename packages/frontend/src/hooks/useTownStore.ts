@@ -65,6 +65,8 @@ interface TownStore {
   setSelectedHouse: (address: string | null) => void;
   setHoveredHouse: (address: string | null, pos?: { x: number; y: number }) => void;
   setLocateHouse: (fn: ((address: string) => void) | null) => void;
+  applyClawdDecision: (address: string, fields: { buildingName: string; architecturalStyle: string; clawdComment: string }) => void;
+  applyBuildingImage: (address: string, imageUrl: string) => void;
 }
 
 export const useTownStore = create<TownStore>((set) => ({
@@ -133,4 +135,31 @@ export const useTownStore = create<TownStore>((set) => ({
   setSelectedHouse: (address) => set({ selectedHouse: address }),
   setHoveredHouse: (address, pos) => set({ hoveredHouse: address, hoverPos: pos ?? null }),
   setLocateHouse: (fn) => set({ locateHouse: fn }),
+
+  applyClawdDecision: (address, fields) => {
+    _changedAddresses.add(address);
+    set((state) => {
+      const existing = state.wallets.get(address);
+      if (!existing) return {};
+      const newMap = new Map(state.wallets);
+      newMap.set(address, {
+        ...existing,
+        buildingName: fields.buildingName,
+        architecturalStyle: fields.architecturalStyle,
+        clawdComment: fields.clawdComment,
+      });
+      return { wallets: newMap };
+    });
+  },
+
+  applyBuildingImage: (address, imageUrl) => {
+    _changedAddresses.add(address);
+    set((state) => {
+      const existing = state.wallets.get(address);
+      if (!existing) return {};
+      const newMap = new Map(state.wallets);
+      newMap.set(address, { ...existing, customImageUrl: imageUrl });
+      return { wallets: newMap };
+    });
+  },
 }));

@@ -424,9 +424,16 @@ function BuildingTooltip() {
         <span style={{ ...styles.tooltipTier, color: accentColor, borderColor: accentDim }}>
           T{tier}
         </span>
-        <span style={styles.tooltipTierName}>{tierName}</span>
+        <span style={styles.tooltipTierName}>{w.buildingName || tierName}</span>
         {isBuilding && <span style={styles.tooltipBuilding}>BUILDING</span>}
       </div>
+
+      {/* AI style info */}
+      {w.architecturalStyle && (
+        <div style={styles.tooltipAIStyle}>
+          {w.architecturalStyle}
+        </div>
+      )}
 
       {/* Address with copy */}
       <div style={styles.tooltipAddrRow}>
@@ -471,6 +478,24 @@ function BuildingTooltip() {
       {w.buildSpeedMult > 1 && (
         <div style={styles.tooltipBoost}>
           <span style={{ color: '#00ff88' }}>BOOST x{w.buildSpeedMult.toFixed(1)}</span>
+        </div>
+      )}
+
+      {/* Clawd's comment */}
+      {w.clawdComment && (
+        <div style={styles.tooltipClawdComment}>
+          <span style={{ color: '#ff00c8' }}>CLAWD:</span> {w.clawdComment}
+        </div>
+      )}
+
+      {/* AI-generated image preview */}
+      {w.customImageUrl && (
+        <div style={styles.tooltipImagePreview}>
+          <img
+            src={w.customImageUrl}
+            alt={w.buildingName || 'AI Building'}
+            style={styles.tooltipImage}
+          />
         </div>
       )}
     </div>
@@ -875,5 +900,39 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     textAlign: 'center' as const,
     letterSpacing: 1,
+  },
+  tooltipAIStyle: {
+    fontFamily: '"Courier New", monospace',
+    fontSize: 9,
+    color: '#ff00c8',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+    opacity: 0.8,
+  },
+  tooltipClawdComment: {
+    marginTop: 6,
+    fontFamily: '"Courier New", monospace',
+    fontSize: 10,
+    color: '#99bbcc',
+    lineHeight: '14px',
+    fontStyle: 'italic' as const,
+    borderTop: '1px solid rgba(255,0,200,0.15)',
+    paddingTop: 5,
+  },
+  tooltipImagePreview: {
+    marginTop: 6,
+    display: 'flex',
+    justifyContent: 'center',
+    borderTop: '1px solid rgba(0,255,245,0.1)',
+    paddingTop: 6,
+  },
+  tooltipImage: {
+    width: 80,
+    height: 80,
+    objectFit: 'contain' as const,
+    imageRendering: 'pixelated' as const,
+    borderRadius: 4,
+    border: '1px solid rgba(0,255,245,0.2)',
+    background: 'rgba(0,0,0,0.3)',
   },
 };

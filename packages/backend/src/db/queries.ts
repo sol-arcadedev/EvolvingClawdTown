@@ -13,6 +13,22 @@ export interface WalletRow {
   color_hue: number;
   first_seen_at: Date;
   last_updated_at: Date;
+  // AI-generated fields
+  custom_image_url: string | null;
+  building_name: string | null;
+  architectural_style: string | null;
+  clawd_comment: string | null;
+  image_prompt: string | null;
+  image_generated_at: Date | null;
+}
+
+export interface ClawdDecisionRow {
+  id: string;
+  wallet_address: string;
+  event_type: string;
+  decision_json: any;
+  image_url: string | null;
+  created_at: Date;
 }
 
 export interface TradeEventRow {
@@ -23,6 +39,18 @@ export interface TradeEventRow {
   token_amount: string;
   sol_amount: string | null;
   processed_at: Date;
+}
+
+export interface WalletTradeStats {
+  totalBuys: number;
+  totalSells: number;
+  totalTokenBought: bigint;
+  totalTokenSold: bigint;
+  largestSingleBuy: bigint;
+  largestSingleSell: bigint;
+  tradesLast24h: number;
+  tradesLast7d: number;
+  decisionCount: number;
 }
 
 export interface WalletStateUpdate {
@@ -302,11 +330,109 @@ export class DB {
     return BigInt(rows[0].total);
   }
 
+  async updateWalletAI(
+    address: string,
+    fields: {
+      custom_image_url?: string | null;
+      building_name?: string | null;
+      architectural_style?: string | null;
+      clawd_comment?: string | null;
+      image_prompt?: string | null;
+      image_generated_at?: Date | null;
+    }
+  ): Promise<WalletRow> {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIdx = 1;
+
+    for (const [key, val] of Object.entries(fields)) {
+      if (val !== undefined) {
+        setClauses.push(`${key} = $${paramIdx++}`);
+        values.push(val);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      const w = await this.getWallet(address);
+      return w!;
+    }
+
+    values.push(address);
+    const { rows } = await this.pool.query<WalletRow>(
+      `UPDATE wallets SET ${setClauses.join(', ')} WHERE address = $${paramIdx} RETURNING *`,
+      values
+    );
+    return rows[0];
+  }
+
+  async insertClawdDecision(
+    walletAddress: string,
+    eventType: string,
+    decisionJson: any,
+    imageUrl: string | null = null
+  ): Promise<ClawdDecisionRow> {
+    const { rows } = await this.pool.query<ClawdDecisionRow>(
+      `INSERT INTO clawd_decisions (wallet_address, event_type, decision_json, image_url)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [walletAddress, eventType, JSON.stringify(decisionJson), imageUrl]
+    );
+    return rows[0];
+  }
+
+  async getRecentClawdDecisions(limit = 20): Promise<ClawdDecisionRow[]> {
+    const { rows } = await this.pool.query<ClawdDecisionRow>(
+      'SELECT * FROM clawd_decisions ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
+    return rows;
+  }
+
+  async getWalletTradeStats(address: string): Promise<WalletTradeStats> {
+    const { rows } = await this.pool.query<{
+      total_buys: string;
+      total_sells: string;
+      total_token_bought: string;
+      total_token_sold: string;
+      largest_single_buy: string;
+      largest_single_sell: string;
+      trades_last_24h: string;
+      trades_last_7d: string;
+      decision_count: string;
+    }>(
+      `SELECT
+        COUNT(*) FILTER (WHERE event_type = 'buy') AS total_buys,
+        COUNT(*) FILTER (WHERE event_type = 'sell') AS total_sells,
+        COALESCE(SUM(token_amount::numeric) FILTER (WHERE event_type = 'buy'), 0) AS total_token_bought,
+        COALESCE(SUM(token_amount::numeric) FILTER (WHERE event_type = 'sell'), 0) AS total_token_sold,
+        COALESCE(MAX(token_amount::numeric) FILTER (WHERE event_type = 'buy'), 0) AS largest_single_buy,
+        COALESCE(MAX(token_amount::numeric) FILTER (WHERE event_type = 'sell'), 0) AS largest_single_sell,
+        COUNT(*) FILTER (WHERE processed_at > NOW() - INTERVAL '24 hours') AS trades_last_24h,
+        COUNT(*) FILTER (WHERE processed_at > NOW() - INTERVAL '7 days') AS trades_last_7d,
+        (SELECT COUNT(*) FROM clawd_decisions WHERE wallet_address = $1) AS decision_count
+      FROM trade_events
+      WHERE wallet_address = $1`,
+      [address]
+    );
+
+    const row = rows[0];
+    return {
+      totalBuys: parseInt(row.total_buys),
+      totalSells: parseInt(row.total_sells),
+      totalTokenBought: BigInt(row.total_token_bought.split('.')[0]),
+      totalTokenSold: BigInt(row.total_token_sold.split('.')[0]),
+      largestSingleBuy: BigInt(row.largest_single_buy.split('.')[0]),
+      largestSingleSell: BigInt(row.largest_single_sell.split('.')[0]),
+      tradesLast24h: parseInt(row.trades_last_24h),
+      tradesLast7d: parseInt(row.trades_last_7d),
+      decisionCount: parseInt(row.decision_count),
+    };
+  }
+
   async resetAll(): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('TRUNCATE trade_events, plot_grid, wallets');
+      await client.query('TRUNCATE clawd_decisions, trade_events, plot_grid, wallets');
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

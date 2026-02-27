@@ -42,7 +42,14 @@
       "Bash(npx ts-node:*)",
       "Bash(lsof:*)",
       "Bash(xargs:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(start:*)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebSearch",
+      "WebFetch(domain:discuss.google.dev)",
+      "WebFetch(domain:github.com)",
+      "Bash(nvidia-smi:*)",
+      "Bash(git clone:*)"
     ]
   }
 }
