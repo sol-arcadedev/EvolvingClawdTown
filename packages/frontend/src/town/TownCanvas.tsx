@@ -5,6 +5,7 @@ import {
   COL_BG,
   PLOT_STRIDE,
   PLOT_DISTANCE_MULT,
+  TIER_SCALE,
   MAINFRAME_PLOTS,
   ZOOM_MIN,
   ZOOM_MAX,
@@ -528,8 +529,8 @@ export default function TownCanvas() {
           // Try AI-generated image first
           const aiImg = getAIImage(b.addr, b.customImageUrl);
           if (aiImg) {
-            // Scale AI image to fit isometric cell (proportional to tier)
-            const baseSize = 30 + b.tier * 12; // scale with tier
+            // Scale AI image to match default sprite sizing (proportional to tier)
+            const baseSize = PLOT_STRIDE * (TIER_SCALE[b.tier] ?? 0.5) * 2;
             const aspect = aiImg.naturalWidth / aiImg.naturalHeight;
             const drawW = baseSize * aspect;
             const drawH = baseSize;
