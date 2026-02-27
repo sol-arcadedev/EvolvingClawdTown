@@ -105,15 +105,18 @@ export function createRestRouter(db: DB): Router {
     }
   });
 
-  router.get('/api/clawd/log', async (_req: Request, res: Response) => {
+  router.get('/api/clawd/log', async (req: Request, res: Response) => {
     try {
-      const decisions = await db.getRecentClawdDecisions(50);
+      const limitParam = parseInt(req.query.limit as string);
+      const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 50;
+      const decisions = await db.getRecentClawdDecisions(limit);
       res.json({
         decisions: decisions.map((d) => ({
           id: d.id,
           walletAddress: d.wallet_address,
           eventType: d.event_type,
           decision: d.decision_json,
+          holderProfile: d.holder_profile,
           imageUrl: d.image_url,
           createdAt: d.created_at.toISOString(),
         })),

@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS clawd_decisions (
 CREATE INDEX IF NOT EXISTS idx_clawd_decisions_wallet ON clawd_decisions(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_clawd_decisions_created_at ON clawd_decisions(created_at DESC);
 
+-- Holder profile snapshot stored with each decision (added via ALTER for existing DBs)
+DO $$ BEGIN
+  ALTER TABLE clawd_decisions ADD COLUMN IF NOT EXISTS holder_profile JSONB;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
 CREATE TABLE IF NOT EXISTS plot_grid (
   x         INTEGER NOT NULL,
   y         INTEGER NOT NULL,

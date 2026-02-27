@@ -28,6 +28,7 @@ export interface ClawdDecisionRow {
   event_type: string;
   decision_json: any;
   image_url: string | null;
+  holder_profile: any;
   created_at: Date;
 }
 
@@ -369,12 +370,13 @@ export class DB {
     walletAddress: string,
     eventType: string,
     decisionJson: any,
-    imageUrl: string | null = null
+    imageUrl: string | null = null,
+    holderProfile: any = null
   ): Promise<ClawdDecisionRow> {
     const { rows } = await this.pool.query<ClawdDecisionRow>(
-      `INSERT INTO clawd_decisions (wallet_address, event_type, decision_json, image_url)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [walletAddress, eventType, JSON.stringify(decisionJson), imageUrl]
+      `INSERT INTO clawd_decisions (wallet_address, event_type, decision_json, image_url, holder_profile)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [walletAddress, eventType, JSON.stringify(decisionJson), imageUrl, holderProfile ? JSON.stringify(holderProfile) : null]
     );
     return rows[0];
   }
