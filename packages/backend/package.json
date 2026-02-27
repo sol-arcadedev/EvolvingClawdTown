@@ -12,14 +12,19 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/vertex-sdk": "^0.14.4",
+    "@google-cloud/vertexai": "^1.10.0",
     "@solana/spl-token": "^0.4.6",
     "@solana/web3.js": "^1.95.0",
+    "@types/sharp": "^0.31.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^8.2.1",
     "ioredis": "^5.4.1",
     "pg": "^8.12.0",
+    "sharp": "^0.34.5",
     "ws": "^8.17.0"
   },
   "devDependencies": {
