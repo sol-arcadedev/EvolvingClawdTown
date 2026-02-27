@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS trade_events (
   id              BIGSERIAL PRIMARY KEY,
   tx_signature    TEXT NOT NULL UNIQUE,
   wallet_address  TEXT NOT NULL REFERENCES wallets(address),
-  event_type      TEXT NOT NULL CHECK (event_type IN ('buy', 'sell', 'transfer_in', 'transfer_out')),
+  event_type      TEXT NOT NULL CHECK (event_type IN ('buy', 'sell')),
   token_amount    BIGINT NOT NULL,
   sol_amount      BIGINT,
   processed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -46,13 +46,14 @@ CREATE TABLE IF NOT EXISTS clawd_decisions (
   event_type      TEXT NOT NULL,
   decision_json   JSONB NOT NULL,
   image_url       TEXT,
+  holder_profile  JSONB,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_clawd_decisions_wallet ON clawd_decisions(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_clawd_decisions_created_at ON clawd_decisions(created_at DESC);
 
--- Holder profile snapshot stored with each decision (added via ALTER for existing DBs)
+-- Migration: add holder_profile for existing DBs created before this column existed
 DO $$ BEGIN
   ALTER TABLE clawd_decisions ADD COLUMN IF NOT EXISTS holder_profile JSONB;
 EXCEPTION WHEN OTHERS THEN NULL;

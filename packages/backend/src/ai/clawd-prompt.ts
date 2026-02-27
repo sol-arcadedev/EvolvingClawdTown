@@ -133,7 +133,7 @@ export type BehaviorPattern =
 
 export function classifyBehaviorPattern(
   stats: WalletTradeStats,
-  eventType: 'buy' | 'sell' | 'transfer_in' | 'transfer_out',
+  eventType: 'buy' | 'sell',
   holdDurationMs: number,
 ): BehaviorPattern {
   const holdDays = holdDurationMs / (1000 * 60 * 60 * 24);

@@ -9,17 +9,32 @@ import { log } from '../utils/logger';
 
 export interface DecisionRequest {
   walletAddress: string;
-  eventType: 'buy' | 'sell' | 'transfer_in' | 'transfer_out';
+  eventType: 'buy' | 'sell';
   isNewHolder: boolean;
   walletRow: WalletRow;
   totalSupply: bigint;
   tokenAmountDelta: bigint;
 }
 
+export interface HolderProfileSummary {
+  walletAddress: string;
+  tier: number;
+  supplyPercent: number;
+  eventType: string;
+  tradingPersonality: string;
+  behaviorPattern: string;
+  behaviorTheme: string;
+  tradeStats: { buys: number; sells: number; volume: number };
+  isNewHolder: boolean;
+  existingBuildingName: string | null;
+}
+
 export interface DecisionResult {
   walletAddress: string;
+  eventType: string;
   decision: ClawdDecision;
   imageUrl: string | null;
+  holderProfile: HolderProfileSummary;
 }
 
 type DecisionCallback = (result: DecisionResult) => void;
@@ -56,6 +71,44 @@ export class DecisionQueue {
     this.queue.push(request);
     log.info(`AI decision queued for ${request.walletAddress.slice(0, 8)}... (queue: ${this.queue.length})`);
     this.processNext();
+  }
+
+  enqueueBulk(requests: DecisionRequest[]): void {
+    if (!isAIEnabled() || requests.length === 0) return;
+
+    for (const request of requests) {
+      // Deduplicate: skip if already queued for this wallet
+      if (!this.queue.some(r => r.walletAddress === request.walletAddress)) {
+        this.queue.push(request);
+      }
+    }
+    log.info(`Bulk-queued ${requests.length} initial building decisions`);
+    this.processNext();
+  }
+
+  /** Queue building designs for all holders that don't have buildings yet. Runs async, doesn't block. */
+  queueInitialBuildings(): void {
+    if (!isAIEnabled()) return;
+    (async () => {
+      try {
+        const walletsWithoutBuildings = await this.db.getWalletsWithoutBuildings();
+        if (walletsWithoutBuildings.length > 0) {
+          log.info(`Queuing Clawd building designs for ${walletsWithoutBuildings.length} holders...`);
+          const totalSupply = await this.db.getTotalSupply();
+          const requests = walletsWithoutBuildings.map(wallet => ({
+            walletAddress: wallet.address,
+            eventType: 'buy' as const,
+            isNewHolder: false,
+            walletRow: wallet,
+            totalSupply,
+            tokenAmountDelta: BigInt(wallet.token_balance),
+          }));
+          this.enqueueBulk(requests);
+        }
+      } catch (err) {
+        log.error('Failed to queue initial building designs:', err);
+      }
+    })();
   }
 
   private async processNext(): Promise<void> {
@@ -202,8 +255,10 @@ export class DecisionQueue {
     if (this.onDecision) {
       this.onDecision({
         walletAddress,
+        eventType,
         decision,
         imageUrl,
+        holderProfile: holderProfileSummary,
       });
     }
   }

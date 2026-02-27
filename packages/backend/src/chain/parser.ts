@@ -30,11 +30,7 @@ export function parseTokenAccount(
 export function determineEventType(
   previousBalance: bigint,
   newBalance: bigint,
-  hasSolMovement: boolean
-): 'buy' | 'sell' | 'transfer_in' | 'transfer_out' {
-  if (newBalance > previousBalance) {
-    return hasSolMovement ? 'buy' : 'transfer_in';
-  } else {
-    return hasSolMovement ? 'sell' : 'transfer_out';
-  }
+  _hasSolMovement: boolean
+): 'buy' | 'sell' {
+  return newBalance > previousBalance ? 'buy' : 'sell';
 }

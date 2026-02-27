@@ -8,7 +8,6 @@ import {
   calcTierDowngradeProgress,
   colorHueFromAddress,
   BUY_BOOST_DURATION_MS,
-  TRANSFER_DAMAGE_MULT,
 } from './rules';
 import { log } from '../utils/logger';
 
@@ -18,7 +17,7 @@ const PROBATION_MS = parseInt(process.env.BOT_PROBATION_MS || '30000');
 export const probationMap = new Map<string, number>();
 
 export interface GameEvent {
-  type: 'buy' | 'sell' | 'transfer_in' | 'transfer_out';
+  type: 'buy' | 'sell';
   walletAddress: string;
   tokenAmountDelta: bigint; // positive = incoming, negative = outgoing
   previousBalance: bigint;
@@ -100,9 +99,9 @@ export class GameEngine {
     );
     if (!inserted) return null; // duplicate
 
-    // Bot detection: if wallet sells/transfers out while still on probation, flag it
+    // Bot detection: if wallet sells while still on probation, flag it
     if (
-      (event.type === 'sell' || event.type === 'transfer_out') &&
+      event.type === 'sell' &&
       probationMap.has(event.walletAddress)
     ) {
       const expiry = probationMap.get(event.walletAddress)!;
@@ -126,22 +125,16 @@ export class GameEngine {
     let boostExpiresAt = wallet.boost_expires_at;
 
     switch (event.type) {
-      case 'buy':
-      case 'transfer_in': {
+      case 'buy': {
         // Boost build speed
         buildSpeedMult = calcBuildSpeedBoost(buildSpeedMult);
         boostExpiresAt = new Date(Date.now() + BUY_BOOST_DURATION_MS);
         break;
       }
 
-      case 'sell':
-      case 'transfer_out': {
+      case 'sell': {
         const absDelta = event.tokenAmountDelta < 0n ? -event.tokenAmountDelta : event.tokenAmountDelta;
-        let damage = calcDamage(absDelta, event.previousBalance);
-
-        if (event.type === 'transfer_out') {
-          damage *= TRANSFER_DAMAGE_MULT;
-        }
+        const damage = calcDamage(absDelta, event.previousBalance);
 
         damagePct = Math.min(100, damagePct + damage);
 

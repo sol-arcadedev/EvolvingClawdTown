@@ -481,14 +481,12 @@ export class ChainListener {
 
     if (previousBalance === newBalance) return;
 
-    const eventType = isIncrease
-      ? (hasSolMovement ? 'buy' : 'transfer_in')
-      : (hasSolMovement ? 'sell' : 'transfer_out');
+    const eventType: 'buy' | 'sell' = isIncrease ? 'buy' : 'sell';
 
     const delta = newBalance - previousBalance;
 
     const gameEvent: GameEvent = {
-      type: eventType as 'buy' | 'sell' | 'transfer_in' | 'transfer_out',
+      type: eventType,
       walletAddress,
       tokenAmountDelta: delta,
       previousBalance,

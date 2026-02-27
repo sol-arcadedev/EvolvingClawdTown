@@ -14,7 +14,7 @@ export interface HolderProfile {
   tier: number;
   supplyPercent: number;
   holdDurationMs: number;
-  eventType: 'buy' | 'sell' | 'transfer_in' | 'transfer_out';
+  eventType: 'buy' | 'sell';
   isNewHolder: boolean;
   tradingPersonality?: string;
   existingBuildingName?: string | null;
@@ -77,7 +77,7 @@ function buildHolderProfileText(profile: HolderProfile): string {
 - Supply Ownership: ${profile.supplyPercent.toFixed(2)}%
 - Hold Duration: ${holdDays}d ${holdHours}h
 - Event: ${profile.eventType.toUpperCase()}
-- This Transaction: ${profile.eventType === 'buy' || profile.eventType === 'transfer_in' ? 'BOUGHT' : 'SOLD'} ${formatTokenAmount(profile.tokenAmountThisTx)} $CLAWDTOWN
+- This Transaction: ${profile.eventType === 'buy' ? 'BOUGHT' : 'SOLD'} ${formatTokenAmount(profile.tokenAmountThisTx)} $CLAWDTOWN
 - New Holder: ${profile.isNewHolder ? 'Yes (first time buyer!)' : 'No (returning)'}
 - Trading Personality: ${profile.tradingPersonality || 'Unknown'}
 - Trade History: ${stats.totalBuys} buys, ${stats.totalSells} sells (ratio: ${buyRatio})
@@ -143,7 +143,7 @@ function parseDecisionJSON(raw: string): ClawdDecision {
 }
 
 export async function makeClawdDecision(profile: HolderProfile): Promise<ClawdDecision> {
-  const isSell = profile.eventType === 'sell' || profile.eventType === 'transfer_out';
+  const isSell = profile.eventType === 'sell';
   const promptTemplate = isSell ? DAMAGE_DECISION_PROMPT : BUILDING_DECISION_PROMPT;
   const profileText = buildHolderProfileText(profile);
   const userPrompt = promptTemplate.replace('{HOLDER_PROFILE}', profileText);
@@ -219,7 +219,7 @@ function sanitizeImagePrompt(prompt: string): string {
 }
 
 function getFallbackDecision(profile: HolderProfile): ClawdDecision {
-  const isSell = profile.eventType === 'sell' || profile.eventType === 'transfer_out';
+  const isSell = profile.eventType === 'sell';
   const tierNames = ['Wooden Shack', 'Stone Cottage', 'Timber Hall', 'Grand Manor', 'Fortified Tower', 'Castle'];
   const baseName = tierNames[Math.min(profile.tier, 5)];
 

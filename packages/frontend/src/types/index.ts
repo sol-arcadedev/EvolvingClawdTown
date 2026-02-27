@@ -21,7 +21,7 @@ export interface WalletState {
 
 export interface TradeEvent {
   walletAddress: string;
-  eventType: 'buy' | 'sell' | 'transfer_in' | 'transfer_out';
+  eventType: 'buy' | 'sell';
   tokenAmountDelta: string;
   timestamp: string;
 }

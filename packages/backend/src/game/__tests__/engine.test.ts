@@ -137,18 +137,6 @@ describe('GameEngine.processEvent', () => {
     });
   });
 
-  describe('transfer_in events', () => {
-    it('boosts build speed same as buy', async () => {
-      const wallet = makeWalletRow({ build_speed_mult: '1.00' });
-      const db = createMockDB(wallet);
-      const engine = new GameEngine(db);
-
-      const result = await engine.processEvent(makeEvent({ type: 'transfer_in' }));
-
-      expect(result!.walletState.build_speed_mult).toBe(1.5);
-    });
-  });
-
   describe('sell events', () => {
     it('applies damage proportional to sell size', async () => {
       const wallet = makeWalletRow({ damage_pct: '0.00' });
@@ -250,26 +238,6 @@ describe('GameEngine.processEvent', () => {
 
       // Progress clamped: (2/4) * 80 = 40, but damage also applied
       expect(result!.walletState.house_tier).toBeLessThan(4);
-    });
-  });
-
-  describe('transfer_out events', () => {
-    it('applies 50% reduced damage compared to sell', async () => {
-      const wallet = makeWalletRow({ damage_pct: '0.00' });
-      const db = createMockDB(wallet);
-      const engine = new GameEngine(db);
-
-      // Transfer out 10% = 10% * 2.0 * 0.5 = 10% damage
-      const event = makeEvent({
-        type: 'transfer_out',
-        tokenAmountDelta: -100000n,
-        previousBalance: 1000000n,
-        newBalance: 900000n,
-      });
-
-      const result = await engine.processEvent(event);
-
-      expect(result!.walletState.damage_pct).toBe(10);
     });
   });
 
