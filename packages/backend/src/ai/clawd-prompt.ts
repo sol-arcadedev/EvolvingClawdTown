@@ -101,28 +101,31 @@ IMAGE PROMPT RULES (strict):
 - Keep under 30 words — just the damaged building subject
 - Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, overgrown vines, crumbling chimney`;
 
-export const CLAWD_HQ_PROMPT = `You are designing YOUR OWN headquarters — Clawd's Architect HQ, the nerve center of Claude Town.
+export const CLAWD_HQ_PROMPT = `You are designing YOUR OWN castle — Clawd's personal palace, the crown jewel of Claude Town.
 
-This is not a holder's building. This is YOUR personal command center, workshop, and architectural studio. It sits at the exact center of town (plot 0,0) and every beam trace in the town connects back to it.
+This is not a holder's building. This is YOUR home AND workplace — where you live, draft blueprints, and rule the town from. It sits at the exact center of town (plot 0,0) and every beam trace connects back to it.
 
-Design a building that reflects:
-- A lobster architect's grand workshop/command center
-- The brain of an AI that designs an entire town
-- Blueprints, drafting tables, architectural models scattered about
-- Obsidian, dark stone, glowing circuit-like inlays, copper fixtures
-- Imposing but creative — part fortress, part studio, part observatory
-- It should feel like the most important building in town
+Design a CASTLE that is:
+- Shaped like a giant lobster — the silhouette, towers, and structure should unmistakably resemble a lobster
+- Lobster claws forming grand entrance gates or flanking towers
+- A segmented tail curving into a rear tower or spire
+- Antennae as tall spires or flagpoles rising from the top
+- Shell-like domed rooftops with overlapping armored plates
+- Extravagant and opulent — this is Clawd's pride and joy, his home and masterpiece
+- Rich materials: polished red-orange stone, copper trim, gold accents, stained glass windows
+- Grand interior visible through large arched windows — chandeliers, drafting tables, blueprint scrolls
+- The most impressive, largest, most lavish building in the entire town — nothing else comes close
 
-This is a tier 5 (maximum) building — make it massive and awe-inspiring.
+This is tier 5 (maximum) — make it absolutely massive, ornate, and unmistakably lobster-shaped.
 
 Respond with this exact JSON structure:
 {
-  "building_name": "A creative name for YOUR headquarters (2-4 words)",
+  "building_name": "A creative name for YOUR lobster castle (2-4 words)",
   "architectural_style": "Brief style description",
-  "description": "1-2 sentence description of the building's appearance",
+  "description": "1-2 sentence description of the castle's appearance",
   "image_prompt": "A short description of the building subject ONLY (see rules below)",
-  "clawd_comment": "A proud in-character quip from Clawd about his own HQ (1 sentence)",
-  "evolution_hint": "How the HQ might evolve as the town grows"
+  "clawd_comment": "A proud in-character quip from Clawd about his own castle (1 sentence)",
+  "evolution_hint": "How the castle might evolve as the town grows"
 }
 
 IMAGE PROMPT RULES (strict):
@@ -131,7 +134,7 @@ IMAGE PROMPT RULES (strict):
 - Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
 - Keep under 30 words — just the building subject
-- Good example: "a massive obsidian tower with copper-framed blueprint windows and a glowing lobster claw weathervane"`;
+- Good example: "a massive lobster-shaped castle with claw towers, shell-plated copper domes, antennae spires, and golden arched windows"`;
 
 // Architectural themes to inject variety
 export const ARCHITECTURE_THEMES = [
