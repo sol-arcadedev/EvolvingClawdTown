@@ -4,6 +4,7 @@ import { TownWebSocketServer } from './ws';
 import { ChainListener } from '../chain/listener';
 import { TickRunner } from '../game/tick';
 import { GameEvent } from '../game/engine';
+import { DecisionQueue } from '../ai/decision-queue';
 import { log } from '../utils/logger';
 
 export interface AdminDeps {
@@ -14,6 +15,7 @@ export interface AdminDeps {
   tickRunner: TickRunner;
   handleGameEvent: (event: GameEvent) => void;
   seedHolders: (force?: boolean) => Promise<void>;
+  decisionQueue: DecisionQueue;
   startedAt: number;
 }
 
@@ -154,6 +156,9 @@ export function createAdminRouter(deps: AdminDeps): Router {
 
           log.info(`[ADMIN] Seed complete for ${mint}`);
           await broadcastWalletsDrip(deps, mint);
+
+          // Queue Clawd building designs for holders without buildings
+          deps.decisionQueue.queueInitialBuildings();
         } catch (err) {
           log.error('[ADMIN] Background seed/listener failed:', err);
         }
@@ -176,6 +181,9 @@ export function createAdminRouter(deps: AdminDeps): Router {
       broadcastWalletsDrip(deps, process.env.TOKEN_MINT_ADDRESS ?? '').catch((err) =>
         log.error('[ADMIN] Drip broadcast failed:', err)
       );
+
+      // Queue Clawd building designs for holders without buildings
+      deps.decisionQueue.queueInitialBuildings();
     } catch (err) {
       log.error('[ADMIN] Re-seed failed:', err);
       res.status(500).json({ error: 'Failed to re-seed holders' });

@@ -430,6 +430,13 @@ export class DB {
     };
   }
 
+  async getWalletsWithoutBuildings(): Promise<WalletRow[]> {
+    const { rows } = await this.pool.query<WalletRow>(
+      `SELECT * FROM wallets WHERE building_name IS NULL AND token_balance != '0' ORDER BY token_balance::numeric DESC`
+    );
+    return rows;
+  }
+
   async resetAll(): Promise<void> {
     const client = await this.pool.connect();
     try {

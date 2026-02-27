@@ -216,7 +216,8 @@ export async function generateBuildingImage(
 }
 
 export function isSDEnabled(): boolean {
-  return process.env.SD_ENABLED === 'true';
+  const enabled = process.env.SD_ENABLED === 'true';
+  return enabled;
 }
 
 export async function checkSDHealth(): Promise<boolean> {

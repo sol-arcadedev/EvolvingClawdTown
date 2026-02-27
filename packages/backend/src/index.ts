@@ -194,13 +194,17 @@ async function main() {
       // Push Clawd's comment to the console
       wsServer.pushConsoleLine(`> ${result.decision.clawd_comment}`);
 
-      // Broadcast the decision
+      // Broadcast the decision (full data for blog page + minimal for canvas)
       wsServer.broadcastMessage({
         type: 'clawd_decision',
         walletAddress: result.walletAddress,
         buildingName: result.decision.building_name,
         architecturalStyle: result.decision.architectural_style,
         clawdComment: result.decision.clawd_comment,
+        decision: result.decision,
+        eventType: result.eventType,
+        holderProfile: result.holderProfile,
+        imageUrl: result.imageUrl,
       });
 
       // If an image was generated, broadcast that too
@@ -393,11 +397,15 @@ async function main() {
     tickRunner,
     handleGameEvent,
     seedHolders: (force) => seedHolders(db, force),
+    decisionQueue,
     startedAt,
   }));
 
   // Seed holders from Helius if DB is empty (first run with new token)
   await seedHolders(db);
+
+  // Queue initial building designs for any holders without buildings
+  decisionQueue.queueInitialBuildings();
 
   // Start server
   server.listen(PORT, () => {
