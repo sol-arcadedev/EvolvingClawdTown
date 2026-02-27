@@ -10,6 +10,12 @@ import {
   BUY_BOOST_DURATION_MS,
   TRANSFER_DAMAGE_MULT,
 } from './rules';
+import { log } from '../utils/logger';
+
+const PROBATION_MS = parseInt(process.env.BOT_PROBATION_MS || '30000');
+
+/** Wallets on probation: address → expiry timestamp. Exported for decision-queue. */
+export const probationMap = new Map<string, number>();
 
 export interface GameEvent {
   type: 'buy' | 'sell' | 'transfer_in' | 'transfer_out';
@@ -55,6 +61,9 @@ export class GameEngine {
       );
       isNew = true;
 
+      // Put new wallet on probation — bots that sell quickly will be caught
+      probationMap.set(event.walletAddress, Date.now() + PROBATION_MS);
+
       // Idempotency check — insert trade event after wallet exists
       const inserted = await this.db.insertTradeEvent(
         event.txSignature,
@@ -90,6 +99,18 @@ export class GameEngine {
       event.solAmount
     );
     if (!inserted) return null; // duplicate
+
+    // Bot detection: if wallet sells/transfers out while still on probation, flag it
+    if (
+      (event.type === 'sell' || event.type === 'transfer_out') &&
+      probationMap.has(event.walletAddress)
+    ) {
+      const expiry = probationMap.get(event.walletAddress)!;
+      if (Date.now() < expiry) {
+        log.info(`Bot detected: ${event.walletAddress.slice(0, 8)}... sold during probation`);
+        probationMap.delete(event.walletAddress);
+      }
+    }
 
     // Existing wallet — apply game rules
     const totalSupply = await this.db.getTotalSupply();

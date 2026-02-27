@@ -83,6 +83,20 @@ async function seedHolders(db: DB, force = false) {
   let totalSupply = 0n;
   for (const balance of ownerMap.values()) totalSupply += balance;
 
+  // Filter dust wallets (bots/snipers who already dumped)
+  const MIN_SEED_PCT = parseFloat(process.env.MIN_SEED_PCT || '0.01');
+  const minBalance = totalSupply * BigInt(Math.round(MIN_SEED_PCT * 100)) / 10000n;
+  let filteredCount = 0;
+  for (const [owner, balance] of ownerMap) {
+    if (balance < minBalance) {
+      ownerMap.delete(owner);
+      filteredCount++;
+    }
+  }
+  if (filteredCount > 0) {
+    log.info(`Filtered ${filteredCount} dust wallets (< ${MIN_SEED_PCT}% of supply)`);
+  }
+
   // Sort by balance descending — whales get central plots
   const sorted = [...ownerMap.entries()].sort((a, b) =>
     b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0

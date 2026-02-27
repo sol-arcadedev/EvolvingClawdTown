@@ -4,6 +4,7 @@ import { generateBuildingImage, isSDEnabled } from './image-generator';
 import { analyzeWallet } from './wallet-analyzer';
 import { classifyBehaviorPattern, getBehaviorTheme } from './clawd-prompt';
 import { walletPctOfSupply } from '../game/rules';
+import { probationMap } from '../game/engine';
 import { log } from '../utils/logger';
 
 export interface DecisionRequest {
@@ -76,6 +77,32 @@ export class DecisionQueue {
   private async processDecision(request: DecisionRequest): Promise<void> {
     const { walletAddress, eventType, isNewHolder, walletRow, totalSupply, tokenAmountDelta } = request;
 
+    // Check bot probation
+    const probationExpiry = probationMap.get(walletAddress);
+    if (probationExpiry !== undefined) {
+      const remaining = probationExpiry - Date.now();
+      if (remaining > 0) {
+        // Still on probation — re-enqueue with delay
+        log.info(`Wallet ${walletAddress.slice(0, 8)}... on probation, deferring AI decision ${Math.ceil(remaining / 1000)}s`);
+        await new Promise(r => setTimeout(r, remaining));
+
+        // After waiting, check if wallet sold during probation (removed from map)
+        if (!probationMap.has(walletAddress)) {
+          // Re-read wallet to check balance
+          const freshWallet = await this.db.getWallet(walletAddress);
+          if (!freshWallet || BigInt(freshWallet.token_balance) === 0n) {
+            log.info(`Bot confirmed: ${walletAddress.slice(0, 8)}... sold during probation — skipping AI decision`);
+            return;
+          }
+        }
+        // Probation expired and wallet still holds — clear and proceed
+        probationMap.delete(walletAddress);
+      } else {
+        // Probation expired — clear it
+        probationMap.delete(walletAddress);
+      }
+    }
+
     // Stage 1: Inspecting wallet
     this.pushProgress(`> Inspecting wallet ${walletAddress.slice(0, 8)}...`);
 
@@ -87,7 +114,7 @@ export class DecisionQueue {
     ]);
 
     // Stage 2: Profile summary
-    this.pushProgress(`> Profile: ${walletPersonality.personality} — ${tradeStats.buys} buys, ${tradeStats.sells} sells`);
+    this.pushProgress(`> Profile: ${walletPersonality.personality} — ${tradeStats.totalBuys} buys, ${tradeStats.totalSells} sells`);
 
     // Build holder profile
     const tokenBalance = BigInt(walletRow.token_balance);
@@ -146,7 +173,25 @@ export class DecisionQueue {
       image_generated_at: imageUrl ? new Date() : null,
     });
 
-    await this.db.insertClawdDecision(walletAddress, eventType, decision, imageUrl);
+    // Build a profile summary for the blog
+    const holderProfileSummary = {
+      walletAddress: walletAddress.slice(0, 4) + '...' + walletAddress.slice(-4),
+      tier: walletRow.house_tier,
+      supplyPercent,
+      eventType,
+      tradingPersonality: walletPersonality.personality,
+      behaviorPattern,
+      behaviorTheme,
+      tradeStats: {
+        buys: tradeStats.totalBuys,
+        sells: tradeStats.totalSells,
+        volume: tradeStats.totalBuys + tradeStats.totalSells,
+      },
+      isNewHolder,
+      existingBuildingName: walletRow.building_name,
+    };
+
+    await this.db.insertClawdDecision(walletAddress, eventType, decision, imageUrl, holderProfileSummary);
 
     log.info(
       `AI decision complete: "${decision.building_name}" for ${walletAddress.slice(0, 8)}... ` +

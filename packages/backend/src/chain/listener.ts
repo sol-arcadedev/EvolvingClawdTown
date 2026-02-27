@@ -2,7 +2,9 @@ import { GameEvent } from '../game/engine';
 import { DB } from '../db/queries';
 import { log } from '../utils/logger';
 
-const POLL_INTERVAL_MS = 5000; // poll every 5 seconds
+const POLL_BASE_MS = parseInt(process.env.POLL_INTERVAL_MS || '10000');
+const POLL_BACKOFF_MS = parseInt(process.env.POLL_BACKOFF_MS || '30000');
+const POLL_BACKOFF_AFTER = parseInt(process.env.POLL_BACKOFF_AFTER || '3');
 
 interface HeliusTokenTransfer {
   fromUserAccount: string;
@@ -28,6 +30,7 @@ export class ChainListener {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSignature: string | null = null;
   private active = false;
+  private emptyPolls = 0;
 
   constructor(
     private rpcUrl: string,
@@ -73,7 +76,8 @@ export class ChainListener {
 
   private schedulePoll(): void {
     if (this.stopped) return;
-    this.pollTimer = setTimeout(() => this.poll(), POLL_INTERVAL_MS);
+    const interval = this.emptyPolls >= POLL_BACKOFF_AFTER ? POLL_BACKOFF_MS : POLL_BASE_MS;
+    this.pollTimer = setTimeout(() => this.poll(), interval);
   }
 
   private async poll(): Promise<void> {
@@ -93,9 +97,19 @@ export class ChainListener {
         // Update cursor to most recent
         this.lastSignature = newTxs[0].signature;
 
+        if (this.emptyPolls >= POLL_BACKOFF_AFTER) {
+          log.info(`Chain listener: activity detected, resetting to ${POLL_BASE_MS}ms polling`);
+        }
+        this.emptyPolls = 0;
+
         // Process oldest first
         for (const tx of newTxs.reverse()) {
           await this.processTransaction(tx);
+        }
+      } else {
+        this.emptyPolls++;
+        if (this.emptyPolls === POLL_BACKOFF_AFTER) {
+          log.info(`Chain listener: ${POLL_BACKOFF_AFTER} empty polls, backing off to ${POLL_BACKOFF_MS}ms`);
         }
       }
     } catch (err) {
