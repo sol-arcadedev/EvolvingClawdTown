@@ -168,9 +168,10 @@ interface Bld {
   customImageUrl?: string | null;
 }
 
-function makeBld(addr: string, w: WalletState): Bld {
-  // Convert tilemap coords to isometric screen coords
-  const [wx, wy] = tileToScreen(w.plotX, w.plotY, 0);
+function makeBld(addr: string, w: WalletState, tiles: DecodedTile[] | null, mapW: number): Bld {
+  // Convert tilemap coords to isometric screen coords, matching tile elevation
+  const elev = tiles ? (tiles[w.plotY * mapW + w.plotX]?.elevation ?? 0) / 255 * 3 : 0;
+  const [wx, wy] = tileToScreen(w.plotX, w.plotY, elev);
   const tier = Math.min(w.houseTier, 5);
   return {
     wx, wy,
@@ -380,9 +381,10 @@ export default function TownCanvas() {
       bldMap.clear();
       gridIndex.clear();
       const wallets = useTownStore.getState().wallets;
+      const mw = useTownStore.getState().mapWidth;
       for (const [addr, w] of wallets) {
         if (!shouldInclude(addr, w)) continue;
-        const bld = makeBld(addr, w);
+        const bld = makeBld(addr, w, decodedTiles, mw);
         bldMap.set(addr, bld);
         gridIndex.set(`${w.plotX},${w.plotY}`, bld);
       }
@@ -413,13 +415,15 @@ export default function TownCanvas() {
           continue;
         }
 
+        const mw = useTownStore.getState().mapWidth;
         if (!existing) {
-          const bld = makeBld(addr, w);
+          const bld = makeBld(addr, w, decodedTiles, mw);
           bldMap.set(addr, bld);
           gridIndex.set(`${w.plotX},${w.plotY}`, bld);
           structural = true;
         } else {
-          const [newWx, newWy] = tileToScreen(w.plotX, w.plotY, 0);
+          const elev = decodedTiles ? (decodedTiles[w.plotY * mw + w.plotX]?.elevation ?? 0) / 255 * 3 : 0;
+          const [newWx, newWy] = tileToScreen(w.plotX, w.plotY, elev);
           if (existing.tileX !== w.plotX || existing.tileY !== w.plotY) {
             gridIndex.delete(`${existing.tileX},${existing.tileY}`);
             existing.wx = newWx;

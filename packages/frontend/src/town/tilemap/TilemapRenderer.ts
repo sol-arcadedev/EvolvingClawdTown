@@ -64,27 +64,27 @@ export function screenToTile(
 // ── Terrain/district color palettes ────────────────────────────
 
 const TERRAIN_COLORS: Record<number, string> = {
-  0: '#1a3a5c', // water
-  1: '#4a6741', // land
-  2: '#6b7b5e', // hill
-  3: '#3d5a3d', // forest
+  0: '#2a5a8c', // water — clearly blue
+  1: '#5a8050', // land — warmer green
+  2: '#8a7a5a', // hill — distinct tan/brown
+  3: '#3a6a3a', // forest — richer green
 };
 
 const DISTRICT_TINTS: Record<number, string> = {
   0: '',            // none — use terrain color
-  1: '#5a7a52',     // residential_low — green
-  2: '#707860',     // residential_high — warm
-  3: '#7a7050',     // commercial — golden
-  4: '#6a6060',     // industrial — gray
-  5: '#606878',     // civic — blue-gray
-  6: '#4a8a4a',     // park — bright green
-  7: '#4a6a7a',     // harbor — teal
+  1: '#6a9a5a',     // residential_low — green
+  2: '#9a8a60',     // residential_high — warm
+  3: '#aa9040',     // commercial — golden
+  4: '#7a7070',     // industrial — gray
+  5: '#6878a0',     // civic — blue-gray
+  6: '#50aa50',     // park — bright green
+  7: '#508a9a',     // harbor — teal
 };
 
 const ROAD_COLORS: Record<number, string> = {
-  1: '#a0a0a0', // main
-  2: '#808080', // secondary
-  3: '#606060', // local
+  1: '#c0c0c0', // main
+  2: '#909090', // secondary
+  3: '#707070', // local
 };
 
 export function getTileColor(tile: DecodedTile): string {

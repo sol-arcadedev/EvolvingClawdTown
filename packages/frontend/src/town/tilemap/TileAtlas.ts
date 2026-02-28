@@ -21,7 +21,8 @@ function tileKey(tile: DecodedTile): number {
 
 function renderTileSprite(key: number): CanvasImageSource {
   const cvs = makeCanvas(TILE_W, TILE_H);
-  const ctx = cvs.getContext('2d') as CanvasRenderingContext2D;
+  const ctx = cvs.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!ctx) return cvs;
 
   const tile: DecodedTile = {
     terrain: key & 0x03,

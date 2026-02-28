@@ -132,7 +132,8 @@ export class ChunkCache {
     const canvasH = Math.ceil(maxSY - minSY) + 2;
 
     const cvs = makeCanvas(canvasW, canvasH);
-    const cctx = cvs.getContext('2d') as CanvasRenderingContext2D;
+    const cctx = cvs.getContext('2d') as CanvasRenderingContext2D | null;
+    if (!cctx) return { canvas: cvs, originX: minSX - 1, originY: minSY - 1, canvasW, canvasH, dirty: false };
 
     // Draw tiles relative to the chunk canvas origin
     for (let ty = startY; ty < endY; ty++) {
