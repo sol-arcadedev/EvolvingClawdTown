@@ -26,6 +26,30 @@ export interface TradeEvent {
   timestamp: string;
 }
 
+// ── Town tilemap types ─────────────────────────────────────────
+
+export interface TownBuilding {
+  id: number;
+  archetypeId: string;
+  originX: number;
+  originY: number;
+  rotation: number;
+  district: string;
+  plotId: string;
+  ownerAddress: string | null;
+  buildingName: string | null;
+  customImageUrl: string | null;
+  imagePrompt: string | null;
+}
+
+export interface TownSnapshotMeta {
+  width: number;
+  height: number;
+  buildings: TownBuilding[];
+  seed: number;
+  tilemapSize: number;
+}
+
 export type WsMessage =
   | { type: 'snapshot'; wallets: WalletState[]; consoleLines: string[]; tokenMint: string }
   | { type: 'wallet_update'; wallet: WalletState }
@@ -33,7 +57,11 @@ export type WsMessage =
   | { type: 'trade'; event: TradeEvent }
   | { type: 'console_line'; line: string }
   | { type: 'clawd_decision'; walletAddress: string; buildingName: string; architecturalStyle: string; clawdComment: string }
-  | { type: 'building_image_update'; walletAddress: string; imageUrl: string; buildingName: string };
+  | { type: 'building_image_update'; walletAddress: string; imageUrl: string; buildingName: string }
+  | { type: 'town_snapshot'; width: number; height: number; buildings: TownBuilding[]; seed: number; tilemapSize: number }
+  | { type: 'building_placed'; [key: string]: any }
+  | { type: 'road_added'; [key: string]: any }
+  | { type: 'district_grown'; [key: string]: any };
 
 export interface SpriteConfig {
   base: string;

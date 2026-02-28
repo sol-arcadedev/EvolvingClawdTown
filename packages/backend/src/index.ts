@@ -20,6 +20,10 @@ import { log } from './utils/logger';
 import { DecisionQueue, DecisionResult } from './ai/decision-queue';
 import { isAIEnabled } from './ai/clawd-agent';
 import { CLAWD_HQ_ADDRESS } from './constants';
+import {
+  initializeTown, findPlotForHolder, applyAction, getArchetypeForTier,
+  createTownSnapshot, TownState, DISTRICT_NAMES,
+} from './town-sim/index';
 
 interface HeliusTokenAccount {
   address: string;
@@ -110,8 +114,31 @@ async function seedHolders(db: DB, force = false) {
     const pct = walletPctOfSupply(balance, totalSupply);
     const tier = getTier(pct);
     const hue = colorHueFromAddress(ownerAddress);
-    const plot = await db.getNextPlotForTier(tier);
-    await db.createWallet(ownerAddress, balance, plot.x, plot.y, tier, hue);
+    // Find plot on tilemap if available, fallback to old spiral
+    let plotX = 0, plotY = 0;
+    if (townState) {
+      const tmPlot = findPlotForHolder(townState, tier);
+      if (tmPlot) {
+        plotX = tmPlot.originX;
+        plotY = tmPlot.originY;
+        const archetype = getArchetypeForTier(tier);
+        applyAction(townState, {
+          type: 'PLACE_BUILDING_ON_PLOT',
+          plotId: tmPlot.id,
+          archetypeId: archetype.id,
+          ownerAddress,
+        });
+      } else {
+        const fallback = await db.getNextPlotForTier(tier);
+        plotX = fallback.x;
+        plotY = fallback.y;
+      }
+    } else {
+      const fallback = await db.getNextPlotForTier(tier);
+      plotX = fallback.x;
+      plotY = fallback.y;
+    }
+    await db.createWallet(ownerAddress, balance, plotX, plotY, tier, hue);
     // Existing holders are already established — mark buildings as fully built
     await db.updateWallet(ownerAddress, { build_progress: 100 });
     created++;
@@ -125,17 +152,46 @@ async function seedClawdHQ(db: DB) {
   const existing = await db.getWallet(CLAWD_HQ_ADDRESS);
   if (existing) return;
 
-  log.info('Seeding Clawd Architect HQ at plot (0,0)...');
-  await db.createWallet(CLAWD_HQ_ADDRESS, 0n, 0, 0, 5, 180);
+  // Find best civic plot near center for Clawd HQ on the tilemap
+  let plotX = 0, plotY = 0;
+  if (townState) {
+    const hqPlot = findPlotForHolder(townState, 5);
+    if (hqPlot) {
+      plotX = hqPlot.originX;
+      plotY = hqPlot.originY;
+      // Place building on tilemap
+      applyAction(townState, {
+        type: 'PLACE_BUILDING_ON_PLOT',
+        plotId: hqPlot.id,
+        archetypeId: 'holder_tier5',
+        ownerAddress: CLAWD_HQ_ADDRESS,
+        buildingName: 'Clawd Architect HQ',
+      });
+      log.info(`Clawd HQ placed on tilemap at plot ${hqPlot.id} (${plotX}, ${plotY})`);
+    }
+  }
+
+  log.info(`Seeding Clawd Architect HQ at plot (${plotX},${plotY})...`);
+  await db.createWallet(CLAWD_HQ_ADDRESS, 0n, plotX, plotY, 5, 180);
   await db.updateWallet(CLAWD_HQ_ADDRESS, { build_progress: 100 });
   log.info('Clawd HQ wallet created');
 }
 
 const startedAt = Date.now();
 
+// Module-level town state — initialized on startup, shared across systems
+let townState: TownState | null = null;
+export function getTownState(): TownState | null { return townState; }
+
 async function main() {
   const PORT = parseInt(process.env.PORT || '3001');
   const TICK_INTERVAL = parseInt(process.env.TICK_INTERVAL_MS || '30000');
+  const TOWN_SEED = parseInt(process.env.TOWN_SEED || '42');
+
+  // Initialize town simulation
+  log.info(`Initializing town simulation (seed: ${TOWN_SEED})...`);
+  townState = initializeTown(TOWN_SEED);
+  log.info(`Town initialized: ${townState.plots.size} plots, ${townState.buildings.length - 1} starter buildings, ${townState.stats.roadTileCount} road tiles`);
 
   // Database
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -166,9 +222,11 @@ async function main() {
 
   // Game engine
   const engine = new GameEngine(db);
+  if (townState) engine.setTownState(townState);
 
   // AI Decision Queue
   const decisionQueue = new DecisionQueue(db);
+  if (townState) decisionQueue.setTownState(townState);
 
   // Express app
   const app = express();
@@ -184,7 +242,7 @@ async function main() {
     next();
   });
 
-  app.use(createRestRouter(db));
+  app.use(createRestRouter(db, () => townState));
 
   // Admin router (mounted after services are ready, see below)
 
@@ -192,7 +250,7 @@ async function main() {
   const server = http.createServer(app);
 
   // WebSocket server (pass null redisUrl if Redis failed)
-  const wsServer = new TownWebSocketServer(server, db, redisPub ? redisUrl : null);
+  const wsServer = new TownWebSocketServer(server, db, redisPub ? redisUrl : null, () => townState);
 
   // AI Progress callback — stream Clawd's thinking to the console
   decisionQueue.setOnProgress((line) => {
@@ -411,6 +469,12 @@ async function main() {
     seedClawdHQ: () => seedClawdHQ(db),
     decisionQueue,
     startedAt,
+    getTownState: () => townState,
+    setTownState: (state) => {
+      townState = state;
+      engine.setTownState(state);
+      decisionQueue.setTownState(state);
+    },
   }));
 
   // Seed Clawd's own HQ at plot (0,0) — before holders so (0,0) is taken

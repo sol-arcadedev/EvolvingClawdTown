@@ -7,6 +7,7 @@ import { walletPctOfSupply } from '../game/rules';
 import { probationMap } from '../game/engine';
 import { log } from '../utils/logger';
 import { CLAWD_HQ_ADDRESS } from '../constants';
+import { TownState, applyAction, findPlotForHolder, getArchetypeForTier, DISTRICT_NAMES } from '../town-sim/index';
 
 export interface DecisionRequest {
   walletAddress: string;
@@ -47,9 +48,14 @@ export class DecisionQueue {
   private onDecision: DecisionCallback | null = null;
   private onProgress: ProgressCallback | null = null;
   private db: DB;
+  private townState: TownState | null = null;
 
   constructor(db: DB) {
     this.db = db;
+  }
+
+  setTownState(state: TownState): void {
+    this.townState = state;
   }
 
   setOnDecision(callback: DecisionCallback): void {
@@ -305,6 +311,21 @@ export class DecisionQueue {
     const { walletAddress, walletRow } = request;
 
     this.pushProgress('> Clawd is designing his own Architect HQ...');
+
+    // Place HQ on tilemap if not already placed
+    if (this.townState) {
+      const hqPlot = findPlotForHolder(this.townState, 5);
+      if (hqPlot && !hqPlot.occupied) {
+        applyAction(this.townState, {
+          type: 'PLACE_BUILDING_ON_PLOT',
+          plotId: hqPlot.id,
+          archetypeId: 'holder_tier5',
+          ownerAddress: walletAddress,
+          buildingName: 'Clawd Architect HQ',
+        });
+        this.pushProgress(`> HQ placed on tilemap at plot ${hqPlot.id}`);
+      }
+    }
 
     const profile: HolderProfile = {
       walletAddress,

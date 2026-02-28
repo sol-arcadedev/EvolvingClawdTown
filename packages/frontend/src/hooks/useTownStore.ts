@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { WalletState, TradeEvent } from '../types';
+import { WalletState, TradeEvent, TownBuilding, TownSnapshotMeta } from '../types';
 
 const MAX_CONSOLE_LINES = 14;
 
@@ -41,6 +41,13 @@ export function consumeChangedAddresses(): { snapshot: boolean; changed: Set<str
   return { snapshot: false, changed: result };
 }
 
+// ── Tilemap change tracking ──────────────────────────────────────
+let _tilemapDirty = false;
+export function consumeTilemapDirty(): boolean {
+  if (_tilemapDirty) { _tilemapDirty = false; return true; }
+  return false;
+}
+
 interface TownStore {
   wallets: Map<string, WalletState>;
   recentTrades: TradeEvent[];
@@ -52,6 +59,13 @@ interface TownStore {
   hoveredHouse: string | null;
   hoverPos: { x: number; y: number } | null;
   locateHouse: ((address: string) => void) | null;
+
+  // Town tilemap state
+  tilemap: Uint8Array | null;
+  mapWidth: number;
+  mapHeight: number;
+  townBuildings: Map<number, TownBuilding>;
+  townSeed: number;
 
   // Actions
   applySnapshot: (wallets: WalletState[], consoleLines?: string[], tokenMint?: string) => void;
@@ -67,6 +81,7 @@ interface TownStore {
   setLocateHouse: (fn: ((address: string) => void) | null) => void;
   applyClawdDecision: (address: string, fields: { buildingName: string; architecturalStyle: string; clawdComment: string }) => void;
   applyBuildingImage: (address: string, imageUrl: string) => void;
+  applyTownSnapshot: (meta: TownSnapshotMeta, tilemap: Uint8Array) => void;
 }
 
 export const useTownStore = create<TownStore>((set) => ({
@@ -80,6 +95,11 @@ export const useTownStore = create<TownStore>((set) => ({
   hoveredHouse: null,
   hoverPos: null,
   locateHouse: null,
+  tilemap: null,
+  mapWidth: 0,
+  mapHeight: 0,
+  townBuildings: new Map(),
+  townSeed: 0,
 
   applySnapshot: (wallets, consoleLines, tokenMint) => {
     const map = new Map<string, WalletState>();
@@ -160,6 +180,19 @@ export const useTownStore = create<TownStore>((set) => ({
       const newMap = new Map(state.wallets);
       newMap.set(address, { ...existing, customImageUrl: imageUrl });
       return { wallets: newMap };
+    });
+  },
+
+  applyTownSnapshot: (meta, tilemap) => {
+    _tilemapDirty = true;
+    const bldMap = new Map<number, TownBuilding>();
+    for (const b of meta.buildings) bldMap.set(b.id, b);
+    set({
+      tilemap,
+      mapWidth: meta.width,
+      mapHeight: meta.height,
+      townBuildings: bldMap,
+      townSeed: meta.seed,
     });
   },
 }));

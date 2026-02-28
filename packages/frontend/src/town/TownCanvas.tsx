@@ -1,59 +1,38 @@
 import { useEffect, useRef } from 'react';
-import { useTownStore, consumeChangedAddresses, getActivityFade } from '../hooks/useTownStore';
+import { useTownStore, consumeChangedAddresses, getActivityFade, consumeTilemapDirty } from '../hooks/useTownStore';
 import type { WalletState } from '../types';
 import {
   COL_BG,
   PLOT_STRIDE,
-  PLOT_DISTANCE_MULT,
   TIER_SCALE,
-  MAINFRAME_PLOTS,
   ZOOM_MIN,
   ZOOM_MAX,
   PARTICLE_COUNT,
   PARTICLE_COLORS,
-  TIER_GROUND_COLORS,
-  TIER_GROUND_BORDER_COLORS,
-  GROUND_SIZE_FACTOR,
 } from './constants';
 import { getBuildingSprite, getLightSprite, hsl, TIER_U } from './BuildingCache';
+import { decodeTilemap, tileToScreen, screenToTile, TILE_W, TILE_H } from './tilemap/TilemapRenderer';
+import type { DecodedTile } from './tilemap/TilemapRenderer';
+import { ChunkCache } from './tilemap/ChunkCache';
 
 /* ───────────────────────────────────────────────────────────
- *  Canvas 2D town renderer — optimised.
+ *  Canvas 2D town renderer — tilemap + buildings.
  *
- *  Key perf wins over the previous version:
- *    1. OffscreenCanvas sprite cache — 1 drawImage per building
- *    2. Incremental sync — O(k) per update, not O(n log n)
- *    3. Grid-based hover — O(1) instead of O(n)
- *    4. No save()/restore() per building
- *    5. Cached HSL colour strings
+ *  Renders a 256x256 isometric tilemap (terrain, districts, roads)
+ *  with buildings placed on tilemap coordinates.
+ *  Keeps all existing building rendering (AI images, procedural sprites,
+ *  blinking lights, progress bars, particles).
  * ─────────────────────────────────────────────────────────── */
 
-// Clawd's HQ address — special wallet at plot (0,0)
 const CLAWD_HQ_ADDRESS = 'clawd-architect-hq';
 
-// Reserved mainframe zone
-const RESERVED = new Set<string>();
-for (const [x, y] of MAINFRAME_PLOTS) RESERVED.add(`${x},${y}`);
-for (let x = -2; x <= 1; x++)
-  for (let y = -2; y <= 1; y++) RESERVED.add(`${x},${y}`);
-
-// World-space grid spacing between buildings
-const GRID_SPACING = PLOT_STRIDE * PLOT_DISTANCE_MULT; // 518.4
-
-// Background colour as CSS string (computed once)
 const BG_CSS = '#' + COL_BG.toString(16).padStart(6, '0');
 
-// ── MAINFRAME ──
-const MF_WX = -0.5 * GRID_SPACING;
-const MF_WY = -0.5 * GRID_SPACING;
-const MF_DEPTH = MF_WX + MF_WY;
-
 // ── PARTICLES ──
-const P_EXTENT = 5 * GRID_SPACING;
+const P_EXTENT = 2000;
 const PARTICLE_CSS = PARTICLE_COLORS.map(
   c => `rgb(${(c >> 16) & 0xff},${(c >> 8) & 0xff},${c & 0xff})`,
 );
-const P_TAU = Math.PI * 2;
 
 interface Particle {
   x: number; y: number;
@@ -90,7 +69,7 @@ function resetParticle(p: Particle) {
 }
 
 // ── BLINKING LIGHTS ──
-const LIGHT_COUNTS = [0, 1, 2, 3, 5, 8]; // per tier
+const LIGHT_COUNTS = [0, 1, 2, 3, 5, 8];
 const TIER_DIMS: [number, number, number][] = [
   [0,0,0], [4,4,3], [5,5,6], [6,6,9], [7,7,14], [8,8,20],
 ];
@@ -108,8 +87,8 @@ function addrHash(addr: string): number {
 }
 
 interface BldLight {
-  ox: number; oy: number; // world-unit offset from building center
-  phase: number; speed: number; size: number; // size in world units
+  ox: number; oy: number;
+  phase: number; speed: number; size: number;
 }
 
 function computeLights(addr: string, tier: number): BldLight[] {
@@ -143,8 +122,6 @@ function computeLights(addr: string, tier: number): BldLight[] {
   return lights;
 }
 
-const EMPTY_LIGHTS: BldLight[] = [];
-
 // ── CLAWD HQ STATIC IMAGE ──
 let clawdHQImage: HTMLImageElement | null = null;
 let clawdHQLoading = false;
@@ -162,110 +139,54 @@ function getClawdHQImage(): HTMLImageElement | null {
 }
 
 // ── AI IMAGE CACHE ──
-const aiImageCache = new Map<string, HTMLImageElement | null>(); // addr → loaded image or null (loading/failed)
-const aiImageLoading = new Set<string>(); // addresses currently loading
+const aiImageCache = new Map<string, HTMLImageElement | null>();
+const aiImageLoading = new Set<string>();
 
 function getAIImage(addr: string, url: string | null | undefined): HTMLImageElement | null {
   if (!url) return null;
-
   const cached = aiImageCache.get(addr);
-  if (cached !== undefined) return cached; // null = failed/loading, Image = ready
-
+  if (cached !== undefined) return cached;
   if (aiImageLoading.has(addr)) return null;
-
-  // Start loading
   aiImageLoading.add(addr);
   const img = new Image();
   img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    aiImageCache.set(addr, img);
-    aiImageLoading.delete(addr);
-  };
-  img.onerror = () => {
-    aiImageCache.set(addr, null); // mark as failed
-    aiImageLoading.delete(addr);
-  };
+  img.onload = () => { aiImageCache.set(addr, img); aiImageLoading.delete(addr); };
+  img.onerror = () => { aiImageCache.set(addr, null); aiImageLoading.delete(addr); };
   img.src = url;
   return null;
 }
 
-// ── GROUND TEXTURE CACHE ──
-const groundImageCache = new Map<number, HTMLImageElement | null>(); // tier → loaded image or null
-const groundImageLoading = new Set<number>();
-
-function getGroundImage(tier: number): HTMLImageElement | null {
-  const cached = groundImageCache.get(tier);
-  if (cached !== undefined) return cached;
-
-  if (groundImageLoading.has(tier)) return null;
-
-  groundImageLoading.add(tier);
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    groundImageCache.set(tier, img);
-    groundImageLoading.delete(tier);
-  };
-  img.onerror = () => {
-    groundImageCache.set(tier, null);
-    groundImageLoading.delete(tier);
-  };
-  img.src = `/assets/tier-ground-${tier}.png`;
-  return null;
-}
-
-// Deterministic jitter so plots aren't on a rigid grid
-// Returns a value in [-1, 1] based on a simple hash of plot coords
-const JITTER_STRENGTH = GRID_SPACING * 0.25; // max offset per axis
-
-function plotJitter(plotX: number, plotY: number): [number, number] {
-  // Simple hash from plot coords → two pseudo-random offsets
-  let h = (plotX * 374761 + plotY * 668265) | 0;
-  h = ((h >> 16) ^ h) * 0x45d9f3b | 0;
-  h = ((h >> 16) ^ h) * 0x45d9f3b | 0;
-  const jx = ((h & 0xffff) / 0xffff - 0.5) * 2 * JITTER_STRENGTH;
-  h = ((h >> 8) ^ (plotX * 198491 + plotY * 931773)) * 0x45d9f3b | 0;
-  const jy = ((h & 0xffff) / 0xffff - 0.5) * 2 * JITTER_STRENGTH;
-  return [jx, jy];
-}
-
-function plotToWorld(plotX: number, plotY: number): [number, number] {
-  const [jx, jy] = plotJitter(plotX, plotY);
-  return [plotX * GRID_SPACING + jx, plotY * GRID_SPACING + jy];
-}
-
-// Building data for rendering
+// ── Building rendering data ──
 interface Bld {
   wx: number; wy: number;
-  plotX: number; plotY: number;
+  tileX: number; tileY: number;
   tier: number; hue: number;
   bp: number; dmg: number;
   addr: string;
-  depth: number; // sort key for painter's algorithm
+  depth: number;
   lights: BldLight[];
   customImageUrl?: string | null;
 }
 
-function shouldInclude(addr: string, w: WalletState): boolean {
-  // Always include Clawd HQ even though it's on a reserved plot with zero balance
-  if (addr === CLAWD_HQ_ADDRESS) return true;
-  if (RESERVED.has(`${w.plotX},${w.plotY}`)) return false;
-  if (w.tokenBalance === '0' || Number(w.tokenBalance) <= 0) return false;
-  return true;
-}
-
 function makeBld(addr: string, w: WalletState): Bld {
-  const [wx, wy] = plotToWorld(w.plotX, w.plotY);
+  // Convert tilemap coords to isometric screen coords
+  const [wx, wy] = tileToScreen(w.plotX, w.plotY, 0);
   const tier = Math.min(w.houseTier, 5);
   return {
     wx, wy,
-    plotX: w.plotX, plotY: w.plotY,
+    tileX: w.plotX, tileY: w.plotY,
     tier, hue: w.colorHue,
     bp: w.buildProgress, dmg: w.damagePct, addr,
-    depth: wx + wy,
+    depth: w.plotX + w.plotY, // isometric depth sort
     lights: computeLights(addr, tier),
     customImageUrl: w.customImageUrl,
   };
+}
+
+function shouldInclude(_addr: string, w: WalletState): boolean {
+  if (_addr === CLAWD_HQ_ADDRESS) return true;
+  if (w.tokenBalance === '0' || Number(w.tokenBalance) <= 0) return false;
+  return true;
 }
 
 // ── MAIN COMPONENT ──
@@ -281,19 +202,24 @@ export default function TownCanvas() {
     const canvas: HTMLCanvasElement = _canvas;
     const ctx: CanvasRenderingContext2D = _ctx;
 
-    // Camera
-    let camX = 0, camY = 0, camScale = 0.45;
+    // Chunk cache for tilemap ground rendering
+    const chunkCache = new ChunkCache();
+    let decodedTiles: DecodedTile[] | null = null;
+
+    // Camera — start centered on tile (128, 128) = map center
+    const [initCX, initCY] = tileToScreen(128, 128, 0);
+    let camX = -initCX * 0.25, camY = -initCY * 0.25;
+    let camScale = 0.25;
     let dragging = false, lastPX = 0, lastPY = 0;
     let dirty = true;
 
-    // Interaction tracking — skip expensive animations during pan/zoom
     let lastInteractTime = 0;
-    const INTERACT_COOLDOWN = 200; // ms after last drag/zoom before resuming animations
+    const INTERACT_COOLDOWN = 200;
 
-    // Persistent building structures (Step 2: incremental sync)
+    // Building structures
     const bldMap = new Map<string, Bld>();
     let sortedBlds: Bld[] = [];
-    const gridIndex = new Map<string, Bld>(); // "plotX,plotY" → Bld
+    const gridIndex = new Map<string, Bld>();
 
     // Hover
     let hoveredAddr: string | null = null;
@@ -310,7 +236,6 @@ export default function TownCanvas() {
     window.addEventListener('resize', resize);
 
     // ── CAMERA ──
-    // Panning uses CSS transform (GPU-composited) — zero canvas redraws during drag
     let dragOffsetX = 0, dragOffsetY = 0;
 
     const onPointerDown = (e: PointerEvent) => {
@@ -326,12 +251,10 @@ export default function TownCanvas() {
       dragOffsetY += e.clientY - lastPY;
       lastPX = e.clientX; lastPY = e.clientY;
       lastInteractTime = performance.now();
-      // GPU-composited translation — no canvas redraw
       canvas.style.transform = `translate(${dragOffsetX}px,${dragOffsetY}px)`;
     };
     const onPointerUp = () => {
       if (dragging) {
-        // Apply accumulated offset to camera, reset CSS transform, do one clean redraw
         camX += dragOffsetX;
         camY += dragOffsetY;
         canvas.style.transform = '';
@@ -341,7 +264,6 @@ export default function TownCanvas() {
       }
       dragging = false; canvas.style.cursor = 'grab';
     };
-    // Zoom: throttle redraws to ~30fps
     let lastZoomDraw = 0;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -356,7 +278,6 @@ export default function TownCanvas() {
       const wx = (mx - cx) / oldS, wy = (my - cy) / oldS;
       camX = mx - canvas.clientWidth / 2 - wx * camScale;
       camY = my - canvas.clientHeight / 2 - wy * camScale;
-      // Throttle to ~30fps during rapid zoom
       const now = performance.now();
       if (now - lastZoomDraw > 33) {
         dirty = true;
@@ -370,7 +291,7 @@ export default function TownCanvas() {
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.style.cursor = 'grab';
 
-    // ── HOVER (Step 3: grid-based O(1)) ──
+    // ── HOVER ──
     let hoverThrottle = 0;
     const onMouseMove = (e: MouseEvent) => {
       if (dragging) return;
@@ -383,14 +304,15 @@ export default function TownCanvas() {
       const cy = canvas.clientHeight / 2 + camY;
       const worldX = (mx - cx) / camScale, worldY = (my - cy) / camScale;
 
-      // Grid-based lookup: check 3×3 neighbourhood around nearest plot
-      const centerPX = Math.round(worldX / GRID_SPACING);
-      const centerPY = Math.round(worldY / GRID_SPACING);
+      // Use screenToTile for O(1) tile lookup
+      const [tileX, tileY] = screenToTile(worldX, worldY);
+
+      // Check for buildings in 3x3 tile neighborhood
       let best: string | null = null;
-      let bestD2 = 80 * 80;
+      let bestD2 = TILE_W * TILE_W;
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
-          const b = gridIndex.get(`${centerPX + dx},${centerPY + dy}`);
+          const b = gridIndex.get(`${tileX + dx},${tileY + dy}`);
           if (!b) continue;
           const ddx = worldX - b.wx, ddy = worldY - b.wy;
           const d2 = ddx * ddx + ddy * ddy;
@@ -416,7 +338,6 @@ export default function TownCanvas() {
     canvas.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('mouseleave', onMouseLeave);
 
-    // Expose hover-clear cancel for tooltip pinning
     (window as any).__cancelHoverClear = () => {
       if (hoverClearTimer) { clearTimeout(hoverClearTimer); hoverClearTimer = null; }
     };
@@ -425,25 +346,36 @@ export default function TownCanvas() {
     const particles: Particle[] = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const p = spawnParticle();
-      p.life = Math.random() * p.maxLife; // stagger initial lifetimes
+      p.life = Math.random() * p.maxLife;
       particles.push(p);
     }
 
-    // ── ANIMATION FRAME COUNTER ──
     let frame = 0;
 
     // ── LOCATE HOUSE ──
     useTownStore.getState().setLocateHouse((address: string) => {
       const w = useTownStore.getState().wallets.get(address);
       if (!w) return;
-      const [tx, ty] = plotToWorld(w.plotX, w.plotY);
+      const [tx, ty] = tileToScreen(w.plotX, w.plotY, 0);
       camScale = 1.2;
       camX = -tx * camScale;
       camY = -ty * camScale;
       dirty = true;
     });
 
-    // ── SYNC FROM STORE (Step 2: incremental) ──
+    // ── SYNC TILEMAP FROM STORE ──
+    function syncTilemap() {
+      if (!consumeTilemapDirty()) return;
+
+      const store = useTownStore.getState();
+      if (!store.tilemap || store.mapWidth === 0) return;
+
+      decodedTiles = decodeTilemap(store.tilemap, store.mapWidth, store.mapHeight);
+      chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+      dirty = true;
+    }
+
+    // ── SYNC BUILDINGS FROM STORE ──
     function fullRebuild() {
       bldMap.clear();
       gridIndex.clear();
@@ -461,7 +393,6 @@ export default function TownCanvas() {
 
     function syncFromStore() {
       const { snapshot, changed } = consumeChangedAddresses();
-
       if (snapshot) { fullRebuild(); return; }
       if (changed.size === 0) return;
 
@@ -474,31 +405,28 @@ export default function TownCanvas() {
         const keep = w != null && shouldInclude(addr, w);
 
         if (!keep) {
-          // Remove
           if (existing) {
             bldMap.delete(addr);
-            gridIndex.delete(`${existing.plotX},${existing.plotY}`);
+            gridIndex.delete(`${existing.tileX},${existing.tileY}`);
             structural = true;
           }
           continue;
         }
 
         if (!existing) {
-          // Add
           const bld = makeBld(addr, w);
           bldMap.set(addr, bld);
           gridIndex.set(`${w.plotX},${w.plotY}`, bld);
           structural = true;
         } else {
-          // Update in-place
-          const [newWx, newWy] = plotToWorld(w.plotX, w.plotY);
-          if (existing.wx !== newWx || existing.wy !== newWy) {
-            gridIndex.delete(`${existing.plotX},${existing.plotY}`);
+          const [newWx, newWy] = tileToScreen(w.plotX, w.plotY, 0);
+          if (existing.tileX !== w.plotX || existing.tileY !== w.plotY) {
+            gridIndex.delete(`${existing.tileX},${existing.tileY}`);
             existing.wx = newWx;
             existing.wy = newWy;
-            existing.plotX = w.plotX;
-            existing.plotY = w.plotY;
-            existing.depth = newWx + newWy;
+            existing.tileX = w.plotX;
+            existing.tileY = w.plotY;
+            existing.depth = w.plotX + w.plotY;
             gridIndex.set(`${w.plotX},${w.plotY}`, existing);
             structural = true;
           }
@@ -526,7 +454,7 @@ export default function TownCanvas() {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
 
-      // Background (pre-camera transform)
+      // Background
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = BG_CSS;
       ctx.fillRect(0, 0, w, h);
@@ -535,120 +463,74 @@ export default function TownCanvas() {
       const cx = w / 2 + camX, cy = h / 2 + camY;
       ctx.setTransform(dpr * camScale, 0, 0, dpr * camScale, dpr * cx, dpr * cy);
 
-      // Viewport culling bounds (world coords)
-      const inv = 1 / camScale;
-      const vl = -cx * inv - 300;
-      const vt = -cy * inv - 300;
-      const vr = (w - cx) * inv + 300;
-      const vb = (h - cy) * inv + 300;
-
-      // Should we draw animations? Skip during active pan/zoom for smooth 60fps
       const showAnim = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
 
-      // ── MAINFRAME + BUILDINGS (depth order) ──
-      let mfDrawn = false;
+      // ── 1. TILEMAP GROUND (chunked) ──
+      chunkCache.drawVisibleChunks(ctx, cx, cy, camScale, w, h);
 
-      // Load static Clawd HQ image
+      // ── 2. BUILDINGS (depth-sorted) ──
+      const inv = 1 / camScale;
+      const vl = -cx * inv - 200;
+      const vt = -cy * inv - 200;
+      const vr = (w - cx) * inv + 200;
+      const vb = (h - cy) * inv + 200;
+
       const hqImg = getClawdHQImage();
 
-      const drawMainframe = () => {
-        if (hqImg) {
-          // Render Clawd's AI-generated HQ image at mainframe position
-          const baseSize = PLOT_STRIDE * (TIER_SCALE[5] ?? 0.5) * 2;
-          const aspect = hqImg.naturalWidth / hqImg.naturalHeight;
-          const drawW = baseSize * aspect;
-          const drawH = baseSize;
-          ctx.drawImage(hqImg, MF_WX - drawW / 2, MF_WY - drawH + 4, drawW, drawH);
-        }
-      };
+      // Building scale factor for tilemap (buildings are rendered at tile scale)
+      const bldScale = 0.8; // scale buildings relative to tiles
 
       for (let i = 0; i < sortedBlds.length; i++) {
         const b = sortedBlds[i];
-
-        // Skip Clawd HQ from normal building rendering — it's drawn as the mainframe
-        if (b.addr === CLAWD_HQ_ADDRESS) continue;
-
-        // Insert mainframe at correct depth position
-        if (!mfDrawn && b.depth > MF_DEPTH) {
-          drawMainframe();
-          mfDrawn = true;
-        }
-
         if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
 
-        // Ground beneath building — SD texture or diamond fallback
-        const r = GRID_SPACING * GROUND_SIZE_FACTOR;
-        const groundImg = getGroundImage(b.tier);
-        if (groundImg) {
-          const drawSize = r * 2;
-          ctx.globalAlpha = 0.5;
-          ctx.drawImage(groundImg, b.wx - drawSize / 2, b.wy - drawSize / 2, drawSize, drawSize);
-          ctx.globalAlpha = 1;
-        } else {
-          const groundFill = TIER_GROUND_COLORS[b.tier];
-          if (groundFill) {
-            ctx.globalAlpha = 0.4;
-            ctx.beginPath();
-            ctx.moveTo(b.wx, b.wy - r); // top
-            ctx.lineTo(b.wx + r, b.wy); // right
-            ctx.lineTo(b.wx, b.wy + r); // bottom
-            ctx.lineTo(b.wx - r, b.wy); // left
-            ctx.closePath();
-            ctx.fillStyle = groundFill;
-            ctx.fill();
-            const groundStroke = TIER_GROUND_BORDER_COLORS[b.tier];
-            if (groundStroke) {
-              ctx.strokeStyle = groundStroke;
-              ctx.lineWidth = 1.5;
-              ctx.stroke();
-            }
-            ctx.globalAlpha = 1;
-          }
-        }
-
-        // Transparency for under-construction / damaged
         const needAlpha = b.bp < 100 || b.dmg > 50;
         if (needAlpha) ctx.globalAlpha = b.bp < 100 ? 0.35 : 0.6;
 
-        if (b.tier === 0) {
+        if (b.addr === CLAWD_HQ_ADDRESS && hqImg) {
+          const baseSize = TILE_W * 3;
+          const aspect = hqImg.naturalWidth / hqImg.naturalHeight;
+          const drawW = baseSize * aspect;
+          const drawH = baseSize;
+          ctx.drawImage(hqImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
+        } else if (b.tier === 0) {
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.3);
-          ctx.fillRect(b.wx - 5, b.wy - 5, 10, 10);
+          ctx.fillRect(b.wx - 3, b.wy - 3, 6, 6);
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.6);
-          ctx.fillRect(b.wx - 2.5, b.wy - 2.5, 5, 5);
+          ctx.fillRect(b.wx - 1.5, b.wy - 1.5, 3, 3);
         } else {
-          // Try AI-generated image first
           const aiImg = getAIImage(b.addr, b.customImageUrl);
           if (aiImg) {
-            // Scale AI image to match default sprite sizing (proportional to tier)
-            const baseSize = PLOT_STRIDE * (TIER_SCALE[b.tier] ?? 0.5) * 2;
+            const baseSize = TILE_W * (TIER_SCALE[b.tier] ?? 0.5) * 3 * bldScale;
             const aspect = aiImg.naturalWidth / aiImg.naturalHeight;
             const drawW = baseSize * aspect;
             const drawH = baseSize;
             ctx.drawImage(aiImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
           } else {
-            // Default sprite
             const { src, bbox, u } = getBuildingSprite(b.tier, b.hue);
+            const scale = bldScale * 0.4; // scale down procedural sprites for tilemap
             ctx.drawImage(
               src,
-              b.wx + bbox.minX * u,
-              b.wy + bbox.minY * u,
-              (bbox.maxX - bbox.minX) * u,
-              (bbox.maxY - bbox.minY) * u,
+              b.wx + bbox.minX * u * scale,
+              b.wy + bbox.minY * u * scale,
+              (bbox.maxX - bbox.minX) * u * scale,
+              (bbox.maxY - bbox.minY) * u * scale,
             );
           }
         }
 
         if (needAlpha) ctx.globalAlpha = 1;
 
+        // Progress bar
         if (b.bp < 100) {
-          const barW = 20, barH = 3;
+          const barW = 12, barH = 2;
           ctx.fillStyle = 'rgba(0,0,0,0.7)';
-          ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW, barH);
+          ctx.fillRect(b.wx - barW / 2, b.wy + 5, barW, barH);
           ctx.fillStyle = hsl(b.hue, 80, 55, 0.9);
-          ctx.fillRect(b.wx - barW / 2, b.wy + 8, barW * (b.bp / 100), barH);
+          ctx.fillRect(b.wx - barW / 2, b.wy + 5, barW * (b.bp / 100), barH);
         }
 
-        // Blinking lights — only when wallet recently traded, fades out over 5s
+        // Blinking lights
         if (showAnim && b.lights.length > 0) {
           const fade = getActivityFade(b.addr, 5000);
           if (fade > 0) {
@@ -657,7 +539,7 @@ export default function TownCanvas() {
               const l = b.lights[li];
               const pulse = Math.sin(frame * l.speed + l.phase);
               if (pulse < 0) continue;
-              const hw = l.size * 2.5;
+              const hw = l.size * 1.5;
               ctx.globalAlpha = pulse * 0.9 * fade;
               ctx.drawImage(lSpr, b.wx + l.ox - hw, b.wy + l.oy - hw, hw * 2, hw * 2);
             }
@@ -666,35 +548,26 @@ export default function TownCanvas() {
         }
       }
 
-      if (!mfDrawn) {
-        drawMainframe();
-      }
-
-      // ── PARTICLES — only when idle ──
+      // ── 3. PARTICLES ──
       if (showAnim) {
-        // Particles
         for (const p of particles) {
           p.life++;
           p.x += p.vx;
           p.y += p.vy;
-
           const lifeRatio = p.life / p.maxLife;
           let fadeAlpha = p.alpha;
           if (lifeRatio < 0.1) fadeAlpha *= lifeRatio / 0.1;
           else if (lifeRatio > 0.8) fadeAlpha *= (1 - lifeRatio) / 0.2;
-
           if (fadeAlpha > 0.01) {
             ctx.globalAlpha = fadeAlpha;
             ctx.fillStyle = p.color;
             ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
           }
-
           if (p.life >= p.maxLife) resetParticle(p);
         }
         ctx.globalAlpha = 1;
       }
 
-      // Reset transform
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
@@ -702,9 +575,9 @@ export default function TownCanvas() {
     let rafId: number;
     function loop() {
       rafId = requestAnimationFrame(loop);
+      syncTilemap();
       syncFromStore();
       frame++;
-      // Only force redraw every frame when animations are visible (not during interaction)
       const idle = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
       if (idle) dirty = true;
       if (dirty) { dirty = false; draw(); }

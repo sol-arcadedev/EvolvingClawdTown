@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import { DB, WalletRow } from '../db/queries';
 import { TIER_THRESHOLDS } from '../game/rules';
+import { TownState, getTownSummary, getDistrictSummaries, encodeBuildingList } from '../town-sim/index';
 
 function walletToJson(w: WalletRow) {
   return {
@@ -25,7 +26,7 @@ function walletToJson(w: WalletRow) {
   };
 }
 
-export function createRestRouter(db: DB): Router {
+export function createRestRouter(db: DB, getTownState?: () => TownState | null): Router {
   const router = Router();
 
   // Rate limiting: 60 requests per minute per IP
@@ -129,6 +130,26 @@ export function createRestRouter(db: DB): Router {
 
   router.get('/api/config', (_req: Request, res: Response) => {
     res.json({ tierThresholds: TIER_THRESHOLDS });
+  });
+
+  // ── Town simulation endpoints ──────────────────────────────────────
+
+  router.get('/api/town/summary', (_req: Request, res: Response) => {
+    const state = getTownState?.();
+    if (!state) { res.json({ error: 'Town not initialized' }); return; }
+    res.json(getTownSummary(state));
+  });
+
+  router.get('/api/town/buildings', (_req: Request, res: Response) => {
+    const state = getTownState?.();
+    if (!state) { res.json({ buildings: [] }); return; }
+    res.json({ buildings: encodeBuildingList(state) });
+  });
+
+  router.get('/api/town/districts', (_req: Request, res: Response) => {
+    const state = getTownState?.();
+    if (!state) { res.json({ districts: [] }); return; }
+    res.json({ districts: getDistrictSummaries(state) });
   });
 
   // Global error handler

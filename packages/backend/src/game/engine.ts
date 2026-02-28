@@ -10,6 +10,7 @@ import {
   BUY_BOOST_DURATION_MS,
 } from './rules';
 import { log } from '../utils/logger';
+import { TownState, findPlotForHolder, applyAction, getArchetypeForTier, DISTRICT_NAMES } from '../town-sim/index';
 
 const PROBATION_MS = parseInt(process.env.BOT_PROBATION_MS || '30000');
 
@@ -35,7 +36,13 @@ export interface ProcessedUpdate {
 }
 
 export class GameEngine {
+  private townState: TownState | null = null;
+
   constructor(private db: DB) {}
+
+  setTownState(state: TownState): void {
+    this.townState = state;
+  }
 
   async processEvent(event: GameEvent): Promise<ProcessedUpdate | null> {
     let wallet = await this.db.getWallet(event.walletAddress);
@@ -48,13 +55,37 @@ export class GameEngine {
       const effectiveSupply = totalSupply + event.newBalance; // include this wallet's new balance
       const pct = walletPctOfSupply(event.newBalance, effectiveSupply);
       const tier = getTier(pct);
-      const plot = await this.db.getNextPlotForTier(tier);
+
+      // Try tilemap plot first, fall back to spiral grid
+      let plotX = 0, plotY = 0;
+      if (this.townState) {
+        const tmPlot = findPlotForHolder(this.townState, tier);
+        if (tmPlot) {
+          plotX = tmPlot.originX;
+          plotY = tmPlot.originY;
+          const archetype = getArchetypeForTier(tier);
+          applyAction(this.townState, {
+            type: 'PLACE_BUILDING_ON_PLOT',
+            plotId: tmPlot.id,
+            archetypeId: archetype.id,
+            ownerAddress: event.walletAddress,
+          });
+        } else {
+          const fallback = await this.db.getNextPlotForTier(tier);
+          plotX = fallback.x;
+          plotY = fallback.y;
+        }
+      } else {
+        const fallback = await this.db.getNextPlotForTier(tier);
+        plotX = fallback.x;
+        plotY = fallback.y;
+      }
 
       wallet = await this.db.createWallet(
         event.walletAddress,
         event.newBalance,
-        plot.x,
-        plot.y,
+        plotX,
+        plotY,
         tier,
         hue
       );

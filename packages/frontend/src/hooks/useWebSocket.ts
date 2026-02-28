@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { WsMessage, WalletState } from '../types';
+import { WsMessage, WalletState, TownSnapshotMeta } from '../types';
 import { useTownStore } from './useTownStore';
 
 const INITIAL_RETRY_MS = 1000;
@@ -25,10 +25,36 @@ function bufferWalletUpdate(wallet: WalletState) {
   }
 }
 
+// ── Gzip decompression (browser-native DecompressionStream) ────
+async function decompressGzip(blob: Blob): Promise<Uint8Array> {
+  const ds = new DecompressionStream('gzip');
+  const reader = blob.stream().pipeThrough(ds).getReader();
+  const chunks: Uint8Array[] = [];
+  let totalLen = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLen += value.length;
+  }
+
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const retryMs = useRef(INITIAL_RETRY_MS);
   const retryTimeout = useRef<ReturnType<typeof setTimeout>>();
+
+  // Track pending town_snapshot metadata (JSON arrives first, then binary)
+  const pendingTownMeta = useRef<TownSnapshotMeta | null>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -43,8 +69,22 @@ export function useWebSocket(url: string) {
       retryMs.current = INITIAL_RETRY_MS;
     };
 
-    ws.onmessage = (ev) => {
+    ws.onmessage = async (ev) => {
       try {
+        // Handle binary frames (gzipped tilemap data)
+        if (ev.data instanceof Blob) {
+          const meta = pendingTownMeta.current;
+          if (meta) {
+            pendingTownMeta.current = null;
+            const decompressed = await decompressGzip(ev.data);
+            console.log(`Town tilemap received: ${decompressed.length} bytes (${meta.width}x${meta.height})`);
+            useTownStore.getState().applyTownSnapshot(meta, decompressed);
+          } else {
+            console.warn('Received binary frame without pending town_snapshot metadata');
+          }
+          return;
+        }
+
         const msg: WsMessage = JSON.parse(ev.data);
 
         switch (msg.type) {
@@ -72,6 +112,21 @@ export function useWebSocket(url: string) {
             break;
           case 'building_image_update':
             useTownStore.getState().applyBuildingImage(msg.walletAddress, msg.imageUrl);
+            break;
+          case 'town_snapshot':
+            // Store metadata, wait for the binary frame that follows
+            pendingTownMeta.current = {
+              width: msg.width,
+              height: msg.height,
+              buildings: msg.buildings,
+              seed: msg.seed,
+              tilemapSize: msg.tilemapSize,
+            };
+            break;
+          case 'building_placed':
+          case 'road_added':
+          case 'district_grown':
+            // TODO: incremental tilemap updates
             break;
         }
       } catch (err) {

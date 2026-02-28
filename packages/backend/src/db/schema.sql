@@ -65,3 +65,30 @@ CREATE TABLE IF NOT EXISTS plot_grid (
   address   TEXT REFERENCES wallets(address),
   PRIMARY KEY (x, y)
 );
+
+-- Town simulation buildings (tilemap system)
+CREATE TABLE IF NOT EXISTS town_buildings (
+  id              TEXT PRIMARY KEY,
+  archetype_id    TEXT NOT NULL,
+  origin_x        INTEGER NOT NULL,
+  origin_y        INTEGER NOT NULL,
+  rotation        SMALLINT NOT NULL DEFAULT 0,
+  district        TEXT NOT NULL,
+  plot_id         TEXT NOT NULL,
+  owner_address   TEXT REFERENCES wallets(address),
+  building_name   TEXT,
+  custom_image_url TEXT,
+  image_prompt    TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_town_buildings_owner ON town_buildings(owner_address);
+
+-- Town action log (tilemap system)
+CREATE TABLE IF NOT EXISTS town_actions (
+  id              BIGSERIAL PRIMARY KEY,
+  action_type     TEXT NOT NULL,
+  action_json     JSONB NOT NULL,
+  result_json     JSONB,
+  actor           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

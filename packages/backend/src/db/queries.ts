@@ -64,6 +64,30 @@ export interface WalletStateUpdate {
   boost_expires_at: Date | null;
 }
 
+export interface TownBuildingRow {
+  id: string;
+  archetype_id: string;
+  origin_x: number;
+  origin_y: number;
+  rotation: number;
+  district: string;
+  plot_id: string;
+  owner_address: string | null;
+  building_name: string | null;
+  custom_image_url: string | null;
+  image_prompt: string | null;
+  created_at: Date;
+}
+
+export interface TownActionRow {
+  id: string;
+  action_type: string;
+  action_json: any;
+  result_json: any;
+  actor: string | null;
+  created_at: Date;
+}
+
 export class DB {
   constructor(private pool: Pool) {}
 
@@ -473,11 +497,62 @@ export class DB {
     return rows;
   }
 
+  // ── Town building methods ──────────────────────────────────────────
+
+  async saveTownBuilding(building: {
+    id: string;
+    archetypeId: string;
+    originX: number;
+    originY: number;
+    rotation: number;
+    district: string;
+    plotId: string;
+    ownerAddress: string | null;
+    buildingName: string | null;
+    customImageUrl: string | null;
+    imagePrompt: string | null;
+  }): Promise<TownBuildingRow> {
+    const { rows } = await this.pool.query<TownBuildingRow>(
+      `INSERT INTO town_buildings (id, archetype_id, origin_x, origin_y, rotation, district, plot_id, owner_address, building_name, custom_image_url, image_prompt)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO UPDATE SET
+         archetype_id = EXCLUDED.archetype_id,
+         building_name = EXCLUDED.building_name,
+         custom_image_url = EXCLUDED.custom_image_url,
+         image_prompt = EXCLUDED.image_prompt
+       RETURNING *`,
+      [building.id, building.archetypeId, building.originX, building.originY,
+       building.rotation, building.district, building.plotId, building.ownerAddress,
+       building.buildingName, building.customImageUrl, building.imagePrompt]
+    );
+    return rows[0];
+  }
+
+  async loadTownBuildings(): Promise<TownBuildingRow[]> {
+    const { rows } = await this.pool.query<TownBuildingRow>(
+      'SELECT * FROM town_buildings ORDER BY created_at'
+    );
+    return rows;
+  }
+
+  async deleteTownBuilding(id: string): Promise<void> {
+    await this.pool.query('DELETE FROM town_buildings WHERE id = $1', [id]);
+  }
+
+  async saveTownAction(actionType: string, actionJson: any, resultJson: any, actor: string | null): Promise<TownActionRow> {
+    const { rows } = await this.pool.query<TownActionRow>(
+      `INSERT INTO town_actions (action_type, action_json, result_json, actor)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [actionType, JSON.stringify(actionJson), JSON.stringify(resultJson), actor]
+    );
+    return rows[0];
+  }
+
   async resetAll(): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('TRUNCATE clawd_decisions, trade_events, plot_grid, wallets');
+      await client.query('TRUNCATE town_actions, town_buildings, clawd_decisions, trade_events, plot_grid, wallets CASCADE');
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

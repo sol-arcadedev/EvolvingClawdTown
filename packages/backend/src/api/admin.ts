@@ -6,6 +6,10 @@ import { TickRunner } from '../game/tick';
 import { GameEvent } from '../game/engine';
 import { DecisionQueue } from '../ai/decision-queue';
 import { log } from '../utils/logger';
+import {
+  TownState, TownAction, initializeTown, applyAction,
+  getTownSummary, getDistrictSummaries, createTownSnapshot,
+} from '../town-sim/index';
 
 export interface AdminDeps {
   db: DB;
@@ -18,6 +22,8 @@ export interface AdminDeps {
   seedClawdHQ: () => Promise<void>;
   decisionQueue: DecisionQueue;
   startedAt: number;
+  getTownState: () => TownState | null;
+  setTownState: (state: TownState) => void;
 }
 
 function authMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -219,6 +225,57 @@ export function createAdminRouter(deps: AdminDeps): Router {
     } catch (err) {
       log.error('[ADMIN] Status failed:', err);
       res.status(500).json({ error: 'Failed to get status' });
+    }
+  });
+
+  // ── Town simulation endpoints ──────────────────────────────────────
+
+  // Regenerate town from new seed
+  router.post('/api/admin/town/regenerate', async (req: Request, res: Response) => {
+    try {
+      const seed = parseInt(req.body.seed) || Math.floor(Math.random() * 1000000);
+      const newState = initializeTown(seed);
+      deps.setTownState(newState);
+      log.info(`[ADMIN] Town regenerated with seed ${seed}: ${newState.plots.size} plots`);
+      res.json({
+        success: true,
+        seed,
+        plotCount: newState.plots.size,
+        buildingCount: newState.buildings.length - 1,
+        stats: getTownSummary(newState),
+      });
+    } catch (err) {
+      log.error('[ADMIN] Town regeneration failed:', err);
+      res.status(500).json({ error: 'Failed to regenerate town' });
+    }
+  });
+
+  // Submit a town action
+  router.post('/api/admin/town/action', async (req: Request, res: Response) => {
+    try {
+      const state = deps.getTownState();
+      if (!state) {
+        res.status(500).json({ error: 'Town not initialized' });
+        return;
+      }
+
+      const action = req.body as TownAction;
+      if (!action || !action.type) {
+        res.status(400).json({ error: 'Missing action type' });
+        return;
+      }
+
+      const result = applyAction(state, action);
+      await deps.db.saveTownAction(action.type, action, result, 'admin');
+
+      if (result.success) {
+        deps.wsServer.broadcastMessage({ type: 'building_placed' as any, action, result });
+      }
+
+      res.json(result);
+    } catch (err) {
+      log.error('[ADMIN] Town action failed:', err);
+      res.status(500).json({ error: 'Failed to apply town action' });
     }
   });
 

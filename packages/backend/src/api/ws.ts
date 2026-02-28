@@ -1,11 +1,15 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import zlib from 'zlib';
 import Redis from 'ioredis';
 import { DB } from '../db/queries';
 import { log } from '../utils/logger';
+import { TownState, createTownSnapshot } from '../town-sim/index';
 
 export interface WsMessage {
-  type: 'snapshot' | 'wallet_update' | 'tick' | 'trade' | 'console_line' | 'clawd_decision' | 'building_image_update';
+  type: 'snapshot' | 'wallet_update' | 'tick' | 'trade' | 'console_line'
+    | 'clawd_decision' | 'building_image_update'
+    | 'town_snapshot' | 'building_placed' | 'road_added' | 'district_grown';
   [key: string]: any;
 }
 
@@ -21,12 +25,15 @@ export class TownWebSocketServer {
   private redisSub: Redis | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private consoleLines: string[] = [];
+  private getTownState: () => TownState | null;
 
   constructor(
     server: HttpServer,
     private db: DB,
-    redisUrl: string | null
+    redisUrl: string | null,
+    getTownState: () => TownState | null = () => null,
   ) {
+    this.getTownState = getTownState;
     this.wss = new WebSocketServer({ server, path: '/ws' });
 
     if (redisUrl) {
@@ -139,6 +146,24 @@ export class TownWebSocketServer {
           tokenMint: process.env.TOKEN_MINT_ADDRESS ?? '',
         };
         extWs.send(JSON.stringify(snapshot));
+
+        // Send town tilemap snapshot (binary, gzipped)
+        const state = this.getTownState();
+        if (state) {
+          const townSnap = createTownSnapshot(state);
+          const tilemapGz = zlib.gzipSync(townSnap.tilemap);
+          const townMsg = JSON.stringify({
+            type: 'town_snapshot',
+            width: townSnap.width,
+            height: townSnap.height,
+            buildings: townSnap.buildings,
+            seed: townSnap.seed,
+            tilemapSize: townSnap.tilemap.length,
+          });
+          extWs.send(townMsg);
+          extWs.send(tilemapGz);
+          log.debug(`Sent town snapshot: ${tilemapGz.length} bytes (gzipped from ${townSnap.tilemap.length})`);
+        }
       } catch (err) {
         log.error('Error sending snapshot:', err);
       }
