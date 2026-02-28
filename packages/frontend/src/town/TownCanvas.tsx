@@ -145,6 +145,22 @@ function computeLights(addr: string, tier: number): BldLight[] {
 
 const EMPTY_LIGHTS: BldLight[] = [];
 
+// ── CLAWD HQ STATIC IMAGE ──
+let clawdHQImage: HTMLImageElement | null = null;
+let clawdHQLoading = false;
+
+function getClawdHQImage(): HTMLImageElement | null {
+  if (clawdHQImage) return clawdHQImage;
+  if (clawdHQLoading) return null;
+  clawdHQLoading = true;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { clawdHQImage = img; clawdHQLoading = false; };
+  img.onerror = () => { clawdHQLoading = false; };
+  img.src = '/assets/clawd-hq.png';
+  return null;
+}
+
 // ── AI IMAGE CACHE ──
 const aiImageCache = new Map<string, HTMLImageElement | null>(); // addr → loaded image or null (loading/failed)
 const aiImageLoading = new Set<string>(); // addresses currently loading
@@ -194,7 +210,7 @@ function getGroundImage(tier: number): HTMLImageElement | null {
     groundImageCache.set(tier, null);
     groundImageLoading.delete(tier);
   };
-  img.src = `/generated/tier-ground-${tier}.png`;
+  img.src = `/assets/tier-ground-${tier}.png`;
   return null;
 }
 
@@ -532,9 +548,8 @@ export default function TownCanvas() {
       // ── MAINFRAME + BUILDINGS (depth order) ──
       let mfDrawn = false;
 
-      // Check if Clawd HQ has a custom AI image to replace the static mainframe sprite
-      const hqBld = bldMap.get(CLAWD_HQ_ADDRESS);
-      const hqImg = hqBld ? getAIImage(CLAWD_HQ_ADDRESS, hqBld.customImageUrl) : null;
+      // Load static Clawd HQ image
+      const hqImg = getClawdHQImage();
 
       const drawMainframe = () => {
         if (hqImg) {

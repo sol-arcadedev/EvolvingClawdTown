@@ -334,11 +334,8 @@ export class DecisionQueue {
 
     this.pushProgress(`> HQ Verdict: "${decision.building_name}" (${decision.architectural_style})`);
 
-    let imageUrl: string | null = null;
-    if (isSDEnabled()) {
-      this.pushProgress('> Rendering Clawd HQ image...');
-      imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
-    }
+    // Use static asset for Clawd HQ — no SD generation needed
+    const imageUrl = '/assets/clawd-hq.png';
 
     await this.db.updateWalletAI(walletAddress, {
       building_name: decision.building_name,
@@ -346,7 +343,7 @@ export class DecisionQueue {
       clawd_comment: decision.clawd_comment,
       image_prompt: decision.image_prompt,
       custom_image_url: imageUrl,
-      image_generated_at: imageUrl ? new Date() : null,
+      image_generated_at: new Date(),
     });
 
     const holderProfileSummary: HolderProfileSummary = {

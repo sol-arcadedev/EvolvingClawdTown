@@ -5,7 +5,6 @@ import { ChainListener } from '../chain/listener';
 import { TickRunner } from '../game/tick';
 import { GameEvent } from '../game/engine';
 import { DecisionQueue } from '../ai/decision-queue';
-import { generateAllGroundTextures } from '../ai/image-generator';
 import { log } from '../utils/logger';
 
 export interface AdminDeps {
@@ -194,19 +193,6 @@ export function createAdminRouter(deps: AdminDeps): Router {
     } catch (err) {
       log.error('[ADMIN] Re-seed failed:', err);
       res.status(500).json({ error: 'Failed to re-seed holders' });
-    }
-  });
-
-  // Generate ground textures
-  router.post('/api/admin/generate-grounds', async (_req: Request, res: Response) => {
-    try {
-      log.info('[ADMIN] Generating ground textures for all tiers...');
-      const urls = await generateAllGroundTextures();
-      log.info(`[ADMIN] Generated ${urls.length} ground textures`);
-      res.json({ success: true, urls });
-    } catch (err) {
-      log.error('[ADMIN] Generate grounds failed:', err);
-      res.status(500).json({ error: 'Failed to generate ground textures' });
     }
   });
 
