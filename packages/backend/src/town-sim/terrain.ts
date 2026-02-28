@@ -1,12 +1,12 @@
 // ── Noise-based terrain generation ─────────────────────────────────
 // Embedded 2D simplex noise + multi-octave terrain with island bias.
 
-import { PRNG } from './prng.js';
+import { PRNG } from './prng';
 import {
   TownMap, Tile,
   TERRAIN_WATER, TERRAIN_LAND, TERRAIN_HILL, TERRAIN_FOREST,
   Cluster, TileCoord,
-} from './types.js';
+} from './types';
 
 // ── Simplex noise (self-contained, no deps) ────────────────────────
 

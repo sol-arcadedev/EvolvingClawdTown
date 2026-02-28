@@ -5,7 +5,7 @@ import {
   DISTRICT_RESIDENTIAL_LOW, DISTRICT_RESIDENTIAL_HIGH,
   DISTRICT_COMMERCIAL, DISTRICT_INDUSTRIAL, DISTRICT_CIVIC,
   DISTRICT_PARK, DISTRICT_HARBOR,
-} from './types.js';
+} from './types';
 
 const ISO_STYLE = 'isometric 2.5d pixel art, sunny lighting, game tileset, no background, transparent background';
 

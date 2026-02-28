@@ -1,6 +1,6 @@
 // ── Districts, roads, and plots ────────────────────────────────────
 
-import { PRNG } from './prng.js';
+import { PRNG } from './prng';
 import {
   TownMap, Tile, TileCoord, Cluster, Plot,
   TERRAIN_WATER,
@@ -8,7 +8,7 @@ import {
   DISTRICT_COMMERCIAL, DISTRICT_INDUSTRIAL, DISTRICT_CIVIC,
   DISTRICT_PARK, DISTRICT_HARBOR,
   inBounds,
-} from './types.js';
+} from './types';
 
 // ── District assignment ────────────────────────────────────────────
 // Labels clusters by position: central → civic/commercial/res_high,

@@ -9,10 +9,10 @@ import {
   DISTRICT_COMMERCIAL, DISTRICT_PARK,
   TAG_NEAR_CENTER, TAG_NEAR_MAIN_ROAD, TAG_EDGE_OF_TOWN,
   inBounds,
-} from './types.js';
-import { computeStats, computeTags, placeBuilding } from './town.js';
-import { getArchetypeForTier } from './archetypes.js';
-import { astarPath } from './layout.js';
+} from './types';
+import { computeStats, computeTags, placeBuilding } from './town';
+import { getArchetypeForTier } from './archetypes';
+import { astarPath } from './layout';
 
 // ── Apply a town action ────────────────────────────────────────────
 

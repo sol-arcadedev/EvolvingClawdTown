@@ -1,16 +1,16 @@
 // ── Town initialization, stats, and tagging ────────────────────────
 
-import { PRNG } from './prng.js';
-import { generateTerrain, clusterLand } from './terrain.js';
-import { assignDistricts, generateRoads, createPlots } from './layout.js';
-import { getAllArchetypes, getArchetypeForDistrict, ARCHETYPES } from './archetypes.js';
+import { PRNG } from './prng';
+import { generateTerrain, clusterLand } from './terrain';
+import { assignDistricts, generateRoads, createPlots } from './layout';
+import { getAllArchetypes, getArchetypeForDistrict, ARCHETYPES } from './archetypes';
 import {
   TownState, TownMap, TownStats, Tile, Building, Plot,
   TERRAIN_WATER,
   DISTRICT_NONE, DISTRICT_NAMES,
   TAG_NEAR_CENTER, TAG_NEAR_WATER, TAG_NEAR_MAIN_ROAD,
   TAG_NEAR_SEC_ROAD, TAG_HIGH_ELEVATION, TAG_LOW_ELEVATION, TAG_EDGE_OF_TOWN,
-} from './types.js';
+} from './types';
 
 // ── Initialize a complete town from seed ───────────────────────────
 

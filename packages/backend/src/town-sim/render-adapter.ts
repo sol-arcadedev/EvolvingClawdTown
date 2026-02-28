@@ -5,7 +5,7 @@
 // Byte 1: elevation (0-255)
 // Byte 2-3: building index (uint16, little-endian)
 
-import { TownState, Building, DISTRICT_NAMES, TERRAIN_NAMES } from './types.js';
+import { TownState, Building, DISTRICT_NAMES, TERRAIN_NAMES } from './types';
 
 export function encodeTilemap(state: TownState): Buffer {
   const { map } = state;
