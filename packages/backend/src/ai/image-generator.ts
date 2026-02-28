@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { log } from '../utils/logger';
+import { validateImageWithVision } from './clawd-agent';
 
 const SD_API_URL = process.env.SD_API_URL || 'http://127.0.0.1:7860';
 
@@ -141,11 +142,28 @@ function colorDist(a: { r: number; g: number; b: number }, b: { r: number; g: nu
   return Math.sqrt((a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2);
 }
 
-async function generateImageDirect(prompt: string, walletAddress: string): Promise<string | null> {
-  const fullPrompt = `${prompt}, ${STYLE_SUFFIX}`;
+async function validateImageTransparency(imageBuffer: Buffer): Promise<{ pass: boolean; transparencyPct: number }> {
+  const { data, info } = await sharp(imageBuffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const totalPixels = width * height;
+  let transparentPixels = 0;
 
+  for (let i = 0; i < totalPixels; i++) {
+    if (data[i * channels + 3] === 0) {
+      transparentPixels++;
+    }
+  }
+
+  const transparencyPct = (transparentPixels / totalPixels) * 100;
+  return { pass: transparencyPct >= 25, transparencyPct };
+}
+
+const MAX_IMAGE_ATTEMPTS = 3;
+const RETRY_PROMPT_BOOST = ', completely isolated floating building, absolutely nothing else in the image';
+
+async function callSD(prompt: string): Promise<Buffer | null> {
   const body = {
-    prompt: fullPrompt,
+    prompt,
     negative_prompt: NEGATIVE_PROMPT,
     ...SD_SETTINGS,
     batch_size: 1,
@@ -153,7 +171,7 @@ async function generateImageDirect(prompt: string, walletAddress: string): Promi
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+  const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
     const response = await fetch(`${SD_API_URL}/sdapi/v1/txt2img`, {
@@ -177,19 +195,7 @@ async function generateImageDirect(prompt: string, walletAddress: string): Promi
       return null;
     }
 
-    // Decode, remove background, and save as transparent PNG
-    const rawBuffer = Buffer.from(images[0], 'base64');
-    const imageBuffer = await removeBackground(rawBuffer);
-    const filename = `${walletAddress}.png`;
-    const filepath = path.join(OUTPUT_DIR, filename);
-
-    // Ensure output directory exists
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-    fs.writeFileSync(filepath, imageBuffer);
-
-    const relativeUrl = `/generated/${filename}`;
-    log.info(`Generated image for ${walletAddress.slice(0, 8)}... → ${relativeUrl}`);
-    return relativeUrl;
+    return Buffer.from(images[0], 'base64');
   } catch (err: any) {
     clearTimeout(timeout);
     if (err.name === 'AbortError') {
@@ -199,6 +205,71 @@ async function generateImageDirect(prompt: string, walletAddress: string): Promi
     }
     return null;
   }
+}
+
+async function generateImageDirect(prompt: string, walletAddress: string): Promise<string | null> {
+  let bestAttempt: { buffer: Buffer; transparencyPct: number } | null = null;
+
+  for (let attempt = 1; attempt <= MAX_IMAGE_ATTEMPTS; attempt++) {
+    const fullPrompt = attempt === 1
+      ? `${prompt}, ${STYLE_SUFFIX}`
+      : `${prompt}, ${STYLE_SUFFIX}${RETRY_PROMPT_BOOST}`;
+
+    log.info(`Image generation attempt ${attempt}/${MAX_IMAGE_ATTEMPTS} for ${walletAddress.slice(0, 8)}...`);
+
+    const rawBuffer = await callSD(fullPrompt);
+    if (!rawBuffer) {
+      log.warn(`Attempt ${attempt}: SD generation failed, skipping`);
+      continue;
+    }
+
+    const imageBuffer = await removeBackground(rawBuffer);
+
+    // Layer 1: Transparency check
+    const transparency = await validateImageTransparency(imageBuffer);
+    log.info(`Attempt ${attempt}: transparency ${transparency.transparencyPct.toFixed(1)}% (need ≥25%)`);
+
+    if (!bestAttempt || transparency.transparencyPct > bestAttempt.transparencyPct) {
+      bestAttempt = { buffer: imageBuffer, transparencyPct: transparency.transparencyPct };
+    }
+
+    if (!transparency.pass) {
+      log.warn(`Attempt ${attempt}: Failed transparency check, retrying...`);
+      continue;
+    }
+
+    // Layer 2: Gemini Vision validation
+    const vision = await validateImageWithVision(imageBuffer);
+    log.info(`Attempt ${attempt}: Vision validation ${vision.pass ? 'PASSED' : 'FAILED'} — ${vision.reason}`);
+
+    if (vision.pass) {
+      return saveImage(imageBuffer, walletAddress, attempt);
+    }
+
+    log.warn(`Attempt ${attempt}: Failed vision validation, retrying...`);
+  }
+
+  // All attempts failed — use the best one
+  if (bestAttempt) {
+    log.warn(`All ${MAX_IMAGE_ATTEMPTS} attempts failed validation, using best attempt (${bestAttempt.transparencyPct.toFixed(1)}% transparent)`);
+    return saveImage(bestAttempt.buffer, walletAddress, -1);
+  }
+
+  log.error(`All ${MAX_IMAGE_ATTEMPTS} attempts failed for ${walletAddress.slice(0, 8)}...`);
+  return null;
+}
+
+function saveImage(imageBuffer: Buffer, walletAddress: string, attempt: number): string {
+  const filename = `${walletAddress}.png`;
+  const filepath = path.join(OUTPUT_DIR, filename);
+
+  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  fs.writeFileSync(filepath, imageBuffer);
+
+  const relativeUrl = `/generated/${filename}`;
+  const label = attempt === -1 ? 'best-effort' : `attempt ${attempt}`;
+  log.info(`Saved image (${label}) for ${walletAddress.slice(0, 8)}... → ${relativeUrl}`);
+  return relativeUrl;
 }
 
 export async function generateBuildingImage(

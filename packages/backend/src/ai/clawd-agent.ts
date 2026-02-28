@@ -269,6 +269,76 @@ function getFallbackDecision(profile: HolderProfile): ClawdDecision {
   };
 }
 
+export async function validateImageWithVision(imageBuffer: Buffer): Promise<{ pass: boolean; reason: string }> {
+  try {
+    const ai = getVertexAI();
+    const model = ai.getGenerativeModel({
+      model: PRIMARY_MODEL,
+      generationConfig: {
+        maxOutputTokens: 256,
+        temperature: 0.1,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const base64Image = imageBuffer.toString('base64');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const result = await model.generateContent({
+      contents: [{
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/png',
+              data: base64Image,
+            },
+          },
+          {
+            text: `Analyze this image. Is it a SINGLE isolated isometric pixel-art building with a transparent or white background and NO environment elements (no ground, no trees, no grass, no sky, no other objects)?
+
+Respond with JSON: { "pass": true/false, "reason": "brief explanation" }
+
+Criteria for PASS:
+- Single building structure only
+- Isometric or top-down-ish perspective
+- Clean background (transparent or solid white)
+- No ground, terrain, grass, trees, bushes, water, or other environment
+- No multiple buildings or structures
+
+Criteria for FAIL:
+- Multiple buildings or structures visible
+- Ground, terrain, grass, or environmental elements present
+- Non-isometric perspective (front view, side view, etc.)
+- Busy or detailed background
+- Not a building at all`,
+          },
+        ],
+      }],
+    });
+
+    clearTimeout(timeout);
+
+    const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      return { pass: true, reason: 'Empty vision response, defaulting to pass' };
+    }
+
+    let cleaned = text.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+
+    const parsed = JSON.parse(cleaned);
+    return { pass: !!parsed.pass, reason: parsed.reason || 'No reason given' };
+  } catch (err: any) {
+    log.warn('Vision validation error (defaulting to pass):', err.message || err);
+    return { pass: true, reason: `Validation error: ${err.message || 'unknown'}` };
+  }
+}
+
 export function isAIEnabled(): boolean {
   return process.env.AI_ENABLED === 'true' && !!process.env.GOOGLE_CLOUD_PROJECT;
 }
