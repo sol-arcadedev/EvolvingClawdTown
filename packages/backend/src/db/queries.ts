@@ -280,6 +280,14 @@ export class DB {
       setClauses.push(`boost_expires_at = $${paramIdx++}`);
       values.push(update.boost_expires_at);
     }
+    if ((update as any).plot_x !== undefined) {
+      setClauses.push(`plot_x = $${paramIdx++}`);
+      values.push((update as any).plot_x);
+    }
+    if ((update as any).plot_y !== undefined) {
+      setClauses.push(`plot_y = $${paramIdx++}`);
+      values.push((update as any).plot_y);
+    }
 
     setClauses.push(`last_updated_at = NOW()`);
     values.push(address);
@@ -552,7 +560,17 @@ export class DB {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('TRUNCATE town_actions, town_buildings, clawd_decisions, trade_events, plot_grid, wallets CASCADE');
+      // Drop tables that may not exist yet, then truncate the rest
+      await client.query(`
+        DO $$ BEGIN
+          EXECUTE (
+            SELECT 'TRUNCATE ' || string_agg(quote_ident(t), ', ') || ' CASCADE'
+            FROM unnest(ARRAY['town_actions','town_buildings','clawd_decisions','trade_events','plot_grid','wallets']) AS t
+            WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public')
+          );
+        EXCEPTION WHEN others THEN NULL;
+        END $$
+      `);
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

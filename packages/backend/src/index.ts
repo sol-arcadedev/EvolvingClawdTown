@@ -177,6 +177,55 @@ async function seedClawdHQ(db: DB) {
   log.info('Clawd HQ wallet created');
 }
 
+async function migrateWalletsToTilemap(db: DB) {
+  if (!townState) return;
+
+  const wallets = await db.getAllWallets();
+  if (wallets.length === 0) return;
+
+  // Check if wallets are already on tilemap coords:
+  // Old spiral coords use negative numbers; tilemap coords are always 0-255
+  const hasNegativeCoords = wallets.some(w => w.plot_x < 0 || w.plot_y < 0);
+  const allInTilemapRange = wallets.every(w =>
+    w.plot_x >= 0 && w.plot_x < 256 && w.plot_y >= 0 && w.plot_y < 256
+  );
+  // Also check if coords map to actual tilemap plots
+  const sampleWallet = wallets[0];
+  const samplePlot = townState.plots.get(`p_${sampleWallet.plot_x}_${sampleWallet.plot_y}`);
+  if (!hasNegativeCoords && allInTilemapRange && samplePlot) {
+    log.info('Wallets appear to already use tilemap coordinates — skipping migration');
+    return;
+  }
+
+  log.info(`Migrating ${wallets.length} wallets from spiral grid to tilemap plots...`);
+
+  // Sort by tier descending (whales first → best plots)
+  const sorted = [...wallets].sort((a, b) => b.house_tier - a.house_tier);
+
+  let migrated = 0;
+  for (const w of sorted) {
+    const plot = findPlotForHolder(townState, w.house_tier);
+    if (!plot) {
+      log.warn(`No tilemap plot available for ${w.address.slice(0, 8)}... (tier ${w.house_tier})`);
+      continue;
+    }
+
+    const archetype = getArchetypeForTier(w.house_tier);
+    applyAction(townState, {
+      type: 'PLACE_BUILDING_ON_PLOT',
+      plotId: plot.id,
+      archetypeId: archetype.id,
+      ownerAddress: w.address,
+      buildingName: w.building_name || undefined,
+    });
+
+    await db.updateWallet(w.address, { plot_x: plot.originX, plot_y: plot.originY } as any);
+    migrated++;
+  }
+
+  log.info(`Migration complete — ${migrated} wallets moved to tilemap plots`);
+}
+
 const startedAt = Date.now();
 
 // Module-level town state — initialized on startup, shared across systems
@@ -482,6 +531,9 @@ async function main() {
 
   // Seed holders from Helius if DB is empty (first run with new token)
   await seedHolders(db);
+
+  // Migrate existing wallets from spiral grid to tilemap plots
+  await migrateWalletsToTilemap(db);
 
   // Queue Clawd HQ design first, then holder buildings
   decisionQueue.queueClawdHQ();

@@ -228,6 +228,19 @@ export function createAdminRouter(deps: AdminDeps): Router {
     }
   });
 
+  // Regenerate all building images
+  router.post('/api/admin/regenerate-images', async (_req: Request, res: Response) => {
+    try {
+      log.info('[ADMIN] Force-regenerating all building images...');
+      deps.decisionQueue.queueAllBuildings();
+      const queueLen = deps.decisionQueue.getQueueLength();
+      res.json({ success: true, message: `Queued ${queueLen} buildings for regeneration` });
+    } catch (err) {
+      log.error('[ADMIN] Regenerate images failed:', err);
+      res.status(500).json({ error: 'Failed to queue image regeneration' });
+    }
+  });
+
   // ── Town simulation endpoints ──────────────────────────────────────
 
   // Regenerate town from new seed
