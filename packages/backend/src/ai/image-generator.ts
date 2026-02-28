@@ -1,10 +1,21 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { GoogleAuth } from 'google-auth-library';
 import { log } from '../utils/logger';
 import { validateImageWithVision } from './clawd-agent';
 
 const SD_API_URL = process.env.SD_API_URL || 'http://127.0.0.1:7860';
+
+// Imagen 3 config (Vertex AI)
+const GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'clawdtown';
+const GOOGLE_CLOUD_REGION = process.env.GOOGLE_CLOUD_REGION || 'us-east5';
+const IMAGEN_MODEL = 'imagen-3.0-generate-002';
+const IMAGEN_ENDPOINT = `https://${GOOGLE_CLOUD_REGION}-aiplatform.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}/locations/${GOOGLE_CLOUD_REGION}/publishers/google/models/${IMAGEN_MODEL}:predict`;
+
+const googleAuth = new GoogleAuth({
+  scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+});
 
 // LoRA trigger: <lora:pixelartredmond-1-5v:0.85> with trigger word "Pixel Art" / "PIXARFK"
 const STYLE_SUFFIX = '<lora:Isometric_Setting:0.95> <lora:pixelartredmond-1-5v:0.65> Isometric_Setting, PIXARFK, Pixel Art, isometric view, single building only, plain solid white background, clean pixel art, 16-bit style, centered, game asset, isolated object, no ground, no floor, no terrain, no trees, no environment, floating building, nothing beneath, nothing around';
@@ -158,6 +169,10 @@ async function validateImageTransparency(imageBuffer: Buffer): Promise<{ pass: b
   return { pass: transparencyPct >= 25, transparencyPct };
 }
 
+// Imagen 3 prompt style (no LoRA triggers or negative prompts needed)
+const IMAGEN_STYLE_SUFFIX = 'isometric pixel art, single isolated building, plain white background, game asset sprite, 16-bit style, centered, no environment, no ground, no trees, no people, no text';
+const IMAGEN_RETRY_BOOST = ', completely isolated floating building, absolutely nothing else in the image, pure white empty background';
+
 const MAX_IMAGE_ATTEMPTS = 3;
 const RETRY_PROMPT_BOOST = ', completely isolated floating building, absolutely nothing else in the image';
 
@@ -207,20 +222,83 @@ async function callSD(prompt: string): Promise<Buffer | null> {
   }
 }
 
+async function callImagen(prompt: string): Promise<Buffer | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const client = await googleAuth.getClient();
+    const token = await client.getAccessToken();
+
+    const body = {
+      instances: [{ prompt }],
+      parameters: { sampleCount: 1, aspectRatio: '1:1' },
+    };
+
+    const response = await fetch(IMAGEN_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${typeof token === 'string' ? token : token.token}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      log.error(`Imagen API returned ${response.status}: ${await response.text()}`);
+      return null;
+    }
+
+    const data: any = await response.json();
+    const predictions = data.predictions;
+    if (!predictions || predictions.length === 0) {
+      log.error('Imagen API returned no predictions');
+      return null;
+    }
+
+    return Buffer.from(predictions[0].bytesBase64Encoded, 'base64');
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      log.error('Imagen API request timed out (60s)');
+    } else {
+      throw err;
+    }
+    return null;
+  }
+}
+
 async function generateImageDirect(prompt: string, walletAddress: string): Promise<string | null> {
+  const useImagen = isImagenEnabled();
   let bestAttempt: { buffer: Buffer; transparencyPct: number } | null = null;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_ATTEMPTS; attempt++) {
-    const fullPrompt = attempt === 1
-      ? `${prompt}, ${STYLE_SUFFIX}`
-      : `${prompt}, ${STYLE_SUFFIX}${RETRY_PROMPT_BOOST}`;
+    let fullPrompt: string;
+    let rawBuffer: Buffer | null;
 
-    log.info(`Image generation attempt ${attempt}/${MAX_IMAGE_ATTEMPTS} for ${walletAddress.slice(0, 8)}...`);
-
-    const rawBuffer = await callSD(fullPrompt);
-    if (!rawBuffer) {
-      log.warn(`Attempt ${attempt}: SD generation failed, skipping`);
-      continue;
+    if (useImagen) {
+      fullPrompt = attempt === 1
+        ? `${prompt}, ${IMAGEN_STYLE_SUFFIX}`
+        : `${prompt}, ${IMAGEN_STYLE_SUFFIX}${IMAGEN_RETRY_BOOST}`;
+      log.info(`Imagen attempt ${attempt}/${MAX_IMAGE_ATTEMPTS} for ${walletAddress.slice(0, 8)}...`);
+      rawBuffer = await callImagen(fullPrompt);
+      if (!rawBuffer) {
+        log.warn(`Attempt ${attempt}: Imagen generation failed, skipping`);
+        continue;
+      }
+    } else {
+      fullPrompt = attempt === 1
+        ? `${prompt}, ${STYLE_SUFFIX}`
+        : `${prompt}, ${STYLE_SUFFIX}${RETRY_PROMPT_BOOST}`;
+      log.info(`SD attempt ${attempt}/${MAX_IMAGE_ATTEMPTS} for ${walletAddress.slice(0, 8)}...`);
+      rawBuffer = await callSD(fullPrompt);
+      if (!rawBuffer) {
+        log.warn(`Attempt ${attempt}: SD generation failed, skipping`);
+        continue;
+      }
     }
 
     const imageBuffer = await removeBackground(rawBuffer);
@@ -276,7 +354,7 @@ export async function generateBuildingImage(
   imagePrompt: string,
   walletAddress: string
 ): Promise<string | null> {
-  if (!isSDEnabled()) {
+  if (!isImageGenEnabled()) {
     return null;
   }
 
@@ -286,9 +364,12 @@ export async function generateBuildingImage(
   });
 }
 
-export function isSDEnabled(): boolean {
-  const enabled = process.env.SD_ENABLED === 'true';
-  return enabled;
+function isImagenEnabled(): boolean {
+  return process.env.IMAGEN_ENABLED === 'true';
+}
+
+export function isImageGenEnabled(): boolean {
+  return process.env.SD_ENABLED === 'true' || process.env.IMAGEN_ENABLED === 'true';
 }
 
 export async function checkSDHealth(): Promise<boolean> {

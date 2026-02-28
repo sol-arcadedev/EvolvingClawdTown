@@ -1,6 +1,6 @@
 import { DB, WalletRow } from '../db/queries';
 import { makeClawdDecision, isAIEnabled, HolderProfile, ClawdDecision } from './clawd-agent';
-import { generateBuildingImage, isSDEnabled } from './image-generator';
+import { generateBuildingImage, isImageGenEnabled } from './image-generator';
 import { analyzeWallet } from './wallet-analyzer';
 import { classifyBehaviorPattern, getBehaviorTheme } from './clawd-prompt';
 import { walletPctOfSupply } from '../game/rules';
@@ -150,6 +150,34 @@ export class DecisionQueue {
     })();
   }
 
+  /** Queue building designs for ALL holders (force regenerate, even those with existing buildings). */
+  queueAllBuildings(): void {
+    if (!isAIEnabled()) return;
+    (async () => {
+      try {
+        const wallets = await this.db.getAllWallets();
+        const holders = wallets.filter(w => w.token_balance !== '0' && w.address !== CLAWD_HQ_ADDRESS);
+        if (holders.length === 0) {
+          log.info('No holders to regenerate buildings for');
+          return;
+        }
+        log.info(`Force-queuing building regeneration for ${holders.length} holders...`);
+        const totalSupply = await this.db.getTotalSupply();
+        const requests = holders.map(wallet => ({
+          walletAddress: wallet.address,
+          eventType: 'buy' as const,
+          isNewHolder: false,
+          walletRow: wallet,
+          totalSupply,
+          tokenAmountDelta: BigInt(wallet.token_balance),
+        }));
+        this.enqueueBulk(requests);
+      } catch (err) {
+        log.error('Failed to queue all building regenerations:', err);
+      }
+    })();
+  }
+
   private async processNext(): Promise<void> {
     if (this.processing || this.queue.length === 0) return;
     this.processing = true;
@@ -254,7 +282,7 @@ export class DecisionQueue {
 
     // Generate image (if SD is available)
     let imageUrl: string | null = null;
-    if (isSDEnabled()) {
+    if (isImageGenEnabled()) {
       // Stage 6: Image generation
       this.pushProgress(`> Rendering building image...`);
       imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
