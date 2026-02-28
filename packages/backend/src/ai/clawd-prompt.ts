@@ -45,16 +45,17 @@ Respond with this exact JSON structure:
   "evolution_hint": "What this building might evolve into next if they keep holding"
 }
 
-IMAGE PROMPT RULES (strict):
-- ONLY describe the building itself: shape, size, materials, colors, architectural features
+IMAGE PROMPT RULES (CRITICAL — follow exactly):
+- Describe ONLY the building structure itself: shape, size, materials, colors, architectural features
+- The building must be a SINGLE ISOLATED OBJECT floating in empty space — nothing around it, nothing beneath it
+- Do NOT include ANY environment: no trees, no bushes, no flowers, no garden, no fence, no yard
+- Do NOT include ANY ground: no grass, no dirt, no path, no road, no stone floor, no pavement, no terrain, no water, no lake, no river
+- Do NOT include ANY background: no sky, no clouds, no mountains, no hills, no scenery, no landscape
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
-- Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
-- Do NOT include ground, terrain, floor, path, grass, dirt, or any surface beneath the building
-- The building must appear completely isolated with nothing beneath it
-- Keep under 30 words — just the building subject
+- Keep under 25 words — ONLY the building itself, nothing else
 - Good example: "a tall stone tower with blue crystal windows and a pointed copper roof"
-- Bad example: "cyberpunk neon tower, isometric view, pixel art, transparent background"
+- Bad example: "a stone cottage surrounded by pine trees on a grassy hill with a winding path"
 
 Building scale by tier:
 - Tier 1 (tiny holder): Small wooden shack, simple hut, lean-to shelter
@@ -95,15 +96,16 @@ Respond with this exact JSON structure:
   "evolution_hint": "What could restore this building (buying more tokens)"
 }
 
-IMAGE PROMPT RULES (strict):
-- ONLY describe the building itself with physical damage: shape, materials, and damage features
+IMAGE PROMPT RULES (CRITICAL — follow exactly):
+- Describe ONLY the damaged building structure itself: shape, materials, and damage features
+- The building must be a SINGLE ISOLATED OBJECT floating in empty space — nothing around it, nothing beneath it
+- Do NOT include ANY environment: no trees, no bushes, no flowers, no garden, no fence, no yard
+- Do NOT include ANY ground: no grass, no dirt, no path, no road, no stone floor, no pavement, no terrain, no water
+- Do NOT include ANY background: no sky, no clouds, no mountains, no scenery, no landscape
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
-- Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
-- Keep under 30 words — just the damaged building subject
-- Do NOT include ground, terrain, floor, path, grass, dirt, or any surface beneath the building
-- The building must appear completely isolated with nothing beneath it
-- Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, overgrown vines, crumbling chimney`;
+- Keep under 25 words — ONLY the damaged building itself
+- Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, crumbling chimney`;
 
 export const CLAWD_HQ_PROMPT = `You are designing YOUR OWN castle — Clawd's personal palace, the crown jewel of Claude Town.
 
@@ -132,14 +134,15 @@ Respond with this exact JSON structure:
   "evolution_hint": "How the castle might evolve as the town grows"
 }
 
-IMAGE PROMPT RULES (strict):
-- ONLY describe the building itself: shape, size, materials, colors, architectural features
+IMAGE PROMPT RULES (CRITICAL — follow exactly):
+- Describe ONLY the building structure itself: shape, size, materials, colors, architectural features
+- The building must be a SINGLE ISOLATED OBJECT floating in empty space — nothing around it, nothing beneath it
+- Do NOT include ANY environment: no trees, no bushes, no flowers, no garden, no fence, no yard
+- Do NOT include ANY ground: no grass, no dirt, no path, no road, no stone floor, no pavement, no terrain, no water
+- Do NOT include ANY background: no sky, no clouds, no mountains, no scenery, no landscape
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
-- Do NOT include background instructions (transparent, white, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
-- Do NOT include ground, terrain, floor, path, grass, dirt, or any surface beneath the building
-- The building must appear completely isolated with nothing beneath it
-- Keep under 30 words — just the building subject
+- Keep under 25 words — ONLY the building itself, nothing else
 - Good example: "a massive lobster-shaped castle with claw towers, shell-plated copper domes, antennae spires, and golden arched windows"`;
 
 // Architectural themes to inject variety

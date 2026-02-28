@@ -64,21 +64,21 @@ export function screenToTile(
 // ── Terrain/district color palettes ────────────────────────────
 
 const TERRAIN_COLORS: Record<number, string> = {
-  0: '#2a5a8c', // water — clearly blue
-  1: '#5a8050', // land — warmer green
-  2: '#8a7a5a', // hill — distinct tan/brown
-  3: '#3a6a3a', // forest — richer green
+  0: '#3070b0', // water — vivid blue
+  1: '#6a9a55', // land — bright green
+  2: '#b09860', // hill — warm sandy tan
+  3: '#2a7a2a', // forest — deep rich green
 };
 
 const DISTRICT_TINTS: Record<number, string> = {
   0: '',            // none — use terrain color
-  1: '#6a9a5a',     // residential_low — green
-  2: '#9a8a60',     // residential_high — warm
-  3: '#aa9040',     // commercial — golden
-  4: '#7a7070',     // industrial — gray
-  5: '#6878a0',     // civic — blue-gray
-  6: '#50aa50',     // park — bright green
-  7: '#508a9a',     // harbor — teal
+  1: '#70b060',     // residential_low — leafy green
+  2: '#c0a050',     // residential_high — warm gold
+  3: '#d4a030',     // commercial — bright amber
+  4: '#909090',     // industrial — light gray
+  5: '#7088c0',     // civic — clear blue
+  6: '#40c840',     // park — vivid green
+  7: '#50a8b8',     // harbor — bright teal
 };
 
 const ROAD_COLORS: Record<number, string> = {

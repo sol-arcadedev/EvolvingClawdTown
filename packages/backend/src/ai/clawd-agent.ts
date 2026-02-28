@@ -203,10 +203,24 @@ const BANNED_TERMS = [
   'pixel art style', 'pixel art', 'isometric view', 'transparent background',
   'white background', 'single building', 'game asset', 'low poly',
   'sci-fi', '8-bit', '16-bit',
-  // Single words
+  'surrounded by', 'sitting on', 'resting on', 'built on', 'placed on',
+  'on a hill', 'on a cliff', 'by the water', 'by a lake', 'by a river',
+  'in a forest', 'in a field', 'in a meadow', 'in a clearing',
+  'winding path', 'stone path', 'cobblestone path', 'dirt path',
+  'pine trees', 'oak trees', 'flower garden', 'small garden',
+  // Rendering/style words
   'isometric', '3d', 'realistic', 'sprite', 'voxel',
   'retro', 'cyberpunk', 'neon', 'vaporwave',
   'futuristic', 'steampunk',
+  // Environment/ground words that must not appear
+  'trees', 'tree', 'bushes', 'bush', 'flowers', 'flower',
+  'garden', 'yard', 'fence', 'fencing', 'hedge',
+  'grass', 'grassy', 'lawn', 'meadow', 'field',
+  'dirt', 'path', 'road', 'pavement', 'cobblestone',
+  'lake', 'river', 'pond', 'stream', 'waterfall',
+  'mountain', 'mountains', 'hills', 'cliff',
+  'sky', 'clouds', 'horizon', 'landscape', 'scenery',
+  'forest', 'woodland', 'clearing',
 ];
 
 function sanitizeImagePrompt(prompt: string): string {
@@ -219,10 +233,10 @@ function sanitizeImagePrompt(prompt: string): string {
   }
   // Collapse whitespace and trim trailing commas/spaces
   cleaned = cleaned.replace(/\s+/g, ' ').replace(/^[,\s]+|[,\s]+$/g, '').trim();
-  // Cap at ~40 words
+  // Cap at ~25 words
   const words = cleaned.split(/\s+/);
-  if (words.length > 40) {
-    cleaned = words.slice(0, 40).join(' ');
+  if (words.length > 25) {
+    cleaned = words.slice(0, 25).join(' ');
   }
   return cleaned;
 }
@@ -237,7 +251,7 @@ function getFallbackDecision(profile: HolderProfile): ClawdDecision {
       building_name: `Damaged ${profile.existingBuildingName || baseName}`,
       architectural_style: 'Deteriorating Structure',
       description: 'A building showing signs of neglect after its owner sold tokens.',
-      image_prompt: `a crumbling ${baseName.toLowerCase()} with cracks in the walls, missing roof tiles, boarded windows, and overgrown vines`,
+      image_prompt: `a crumbling ${baseName.toLowerCase()} with cracks in the walls, missing roof tiles, and boarded windows`,
       clawd_comment: `Another paper hand. The ${baseName} weeps.`,
       evolution_hint: 'Buy more tokens to begin repairs.',
     };
