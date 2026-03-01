@@ -42,10 +42,17 @@ export interface TownBuilding {
   imagePrompt: string | null;
 }
 
+export interface TownDecoration {
+  x: number;
+  y: number;
+  type: number; // 1=tree, 2=bush, 3=rock, 4=fountain, 5=bench
+}
+
 export interface TownSnapshotMeta {
   width: number;
   height: number;
   buildings: TownBuilding[];
+  decorations?: TownDecoration[];
   seed: number;
   tilemapSize: number;
 }
@@ -58,7 +65,7 @@ export type WsMessage =
   | { type: 'console_line'; line: string }
   | { type: 'clawd_decision'; walletAddress: string; buildingName: string; architecturalStyle: string; clawdComment: string }
   | { type: 'building_image_update'; walletAddress: string; imageUrl: string; buildingName: string }
-  | { type: 'town_snapshot'; width: number; height: number; buildings: TownBuilding[]; seed: number; tilemapSize: number }
+  | { type: 'town_snapshot'; width: number; height: number; buildings: TownBuilding[]; decorations?: TownDecoration[]; seed: number; tilemapSize: number }
   | { type: 'building_placed'; [key: string]: any }
   | { type: 'road_added'; [key: string]: any }
   | { type: 'district_grown'; [key: string]: any };

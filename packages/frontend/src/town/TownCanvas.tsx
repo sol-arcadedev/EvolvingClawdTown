@@ -14,6 +14,7 @@ import { getBuildingSprite, getLightSprite, hsl, TIER_U } from './BuildingCache'
 import { decodeTilemap, tileToScreen, screenToTile, TILE_W, TILE_H } from './tilemap/TilemapRenderer';
 import type { DecodedTile } from './tilemap/TilemapRenderer';
 import { ChunkCache } from './tilemap/ChunkCache';
+import { onTileTexturesLoaded } from './tilemap/TileAtlas';
 
 /* ───────────────────────────────────────────────────────────
  *  Canvas 2D town renderer — tilemap + buildings.
@@ -206,6 +207,12 @@ export default function TownCanvas() {
     // Chunk cache for tilemap ground rendering
     const chunkCache = new ChunkCache();
     let decodedTiles: DecodedTile[] | null = null;
+
+    // When tile textures finish loading, rebuild all chunk canvases
+    onTileTexturesLoaded(() => {
+      chunkCache.invalidateAll();
+      dirty = true;
+    });
 
     // Camera — start centered on tile (128, 128) = map center
     const [initCX, initCY] = tileToScreen(128, 128, 0);
@@ -469,15 +476,74 @@ export default function TownCanvas() {
 
       const showAnim = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
 
-      // ── 1. TILEMAP GROUND (chunked) ──
-      chunkCache.drawVisibleChunks(ctx, cx, cy, camScale, w, h);
-
-      // ── 2. BUILDINGS (depth-sorted) ──
+      // Viewport bounds for culling
       const inv = 1 / camScale;
       const vl = -cx * inv - 200;
       const vt = -cy * inv - 200;
       const vr = (w - cx) * inv + 200;
       const vb = (h - cy) * inv + 200;
+
+      // ── 1. TILEMAP GROUND (chunked) ──
+      chunkCache.drawVisibleChunks(ctx, cx, cy, camScale, w, h);
+
+      // ── 1.5. DECORATIONS ──
+      const decorations = useTownStore.getState().decorations;
+      const mapW = useTownStore.getState().mapWidth;
+      if (decorations.length > 0 && decodedTiles && mapW > 0) {
+        for (const deco of decorations) {
+          const tIdx = deco.y * mapW + deco.x;
+          const elev = decodedTiles[tIdx] ? decodedTiles[tIdx].elevation / 255 * 3 : 0;
+          const [dx, dy] = tileToScreen(deco.x, deco.y, elev);
+          if (dx < vl || dx > vr || dy < vt || dy > vb) continue;
+
+          // Draw simple colored shapes for decorations
+          const size = 4;
+          switch (deco.type) {
+            case 1: // tree
+              ctx.fillStyle = '#2a6e2a';
+              ctx.beginPath();
+              ctx.arc(dx, dy - size, size, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = '#5a3a1a';
+              ctx.fillRect(dx - 1, dy - 2, 2, 4);
+              break;
+            case 2: // bush
+              ctx.fillStyle = '#3a8a3a';
+              ctx.beginPath();
+              ctx.arc(dx, dy - 2, 3, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            case 3: // rock
+              ctx.fillStyle = '#8a8a8a';
+              ctx.beginPath();
+              ctx.moveTo(dx - 3, dy);
+              ctx.lineTo(dx - 1, dy - 4);
+              ctx.lineTo(dx + 2, dy - 3);
+              ctx.lineTo(dx + 3, dy);
+              ctx.closePath();
+              ctx.fill();
+              break;
+            case 4: // fountain
+              ctx.fillStyle = '#7090c0';
+              ctx.beginPath();
+              ctx.arc(dx, dy - 2, 4, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = '#90b0e0';
+              ctx.beginPath();
+              ctx.arc(dx, dy - 4, 2, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            case 5: // bench
+              ctx.fillStyle = '#8b6914';
+              ctx.fillRect(dx - 4, dy - 1, 8, 2);
+              ctx.fillRect(dx - 3, dy - 3, 1, 3);
+              ctx.fillRect(dx + 2, dy - 3, 1, 3);
+              break;
+          }
+        }
+      }
+
+      // ── 2. BUILDINGS (depth-sorted) ──
 
       const hqImg = getClawdHQImage();
 

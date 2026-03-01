@@ -144,7 +144,10 @@ export type TownAction =
   | { type: 'GROW_DISTRICT'; district: DistrictType; amount: number }
   | { type: 'PLACE_BUILDING_ON_PLOT'; plotId: string; archetypeId: string; ownerAddress?: string; buildingName?: string }
   | { type: 'REPLACE_BUILDING'; buildingId: number; newArchetypeId: string }
-  | { type: 'CREATE_PARK_IN_AREA'; center: TileCoord; radius: number };
+  | { type: 'CREATE_PARK_IN_AREA'; center: TileCoord; radius: number }
+  | { type: 'EXPAND_TOWN'; center: TileCoord; radius: number; district: DistrictType }
+  | { type: 'CREATE_PLOT'; origin: TileCoord; width: number; height: number; district: DistrictType }
+  | { type: 'PLACE_DECORATION'; position: TileCoord; decorationType: string };
 
 // ── Town State ─────────────────────────────────────────────────────
 export interface TownState {

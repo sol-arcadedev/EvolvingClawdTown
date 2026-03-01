@@ -119,6 +119,7 @@ export function useWebSocket(url: string) {
               width: msg.width,
               height: msg.height,
               buildings: msg.buildings,
+              decorations: msg.decorations,
               seed: msg.seed,
               tilemapSize: msg.tilemapSize,
             };

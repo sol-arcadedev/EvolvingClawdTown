@@ -3,7 +3,7 @@
 import {
   TownState, TownAction, TownStats, TileCoord, Plot,
   DistrictSummary, Building,
-  TERRAIN_WATER,
+  TERRAIN_WATER, TERRAIN_LAND,
   DISTRICT_NONE, DISTRICT_NAMES,
   DISTRICT_CIVIC, DISTRICT_RESIDENTIAL_HIGH, DISTRICT_RESIDENTIAL_LOW,
   DISTRICT_COMMERCIAL, DISTRICT_PARK,
@@ -35,6 +35,15 @@ export function applyAction(
 
     case 'CREATE_PARK_IN_AREA':
       return applyCreatePark(state, action.center, action.radius);
+
+    case 'EXPAND_TOWN':
+      return applyExpandTown(state, action.center, action.radius, action.district);
+
+    case 'CREATE_PLOT':
+      return applyCreatePlot(state, action.origin, action.width, action.height, action.district);
+
+    case 'PLACE_DECORATION':
+      return applyPlaceDecoration(state, action.position, action.decorationType);
 
     default:
       return { success: false, error: 'Unknown action type' };
@@ -187,6 +196,163 @@ function applyCreatePark(
 
   computeTags(map);
   state.stats = computeStats(state);
+  return { success: true };
+}
+
+// ── Expand town (ocean → land) ────────────────────────────────────
+
+function applyExpandTown(
+  state: TownState,
+  center: TileCoord,
+  radius: number,
+  districtName: string,
+): { success: boolean; error?: string } {
+  const { map } = state;
+  const distIdx = DISTRICT_NAMES.indexOf(districtName as any);
+  if (distIdx < 0) return { success: false, error: `Unknown district: ${districtName}` };
+
+  let expanded = 0;
+
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx * dx + dy * dy > radius * radius) continue;
+      const x = center.x + dx, y = center.y + dy;
+      if (!inBounds(map, x, y)) continue;
+
+      const idx = y * map.width + x;
+      const t = map.tiles[idx];
+      if (t.terrain !== TERRAIN_WATER) continue;
+
+      // Only expand tiles adjacent to existing land (organic edge growth)
+      let adjacentToLand = false;
+      for (const [adx, ady] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const nx = x + adx, ny = y + ady;
+        if (inBounds(map, nx, ny) && map.tiles[ny * map.width + nx].terrain !== TERRAIN_WATER) {
+          adjacentToLand = true;
+          break;
+        }
+      }
+      if (!adjacentToLand) continue;
+
+      t.terrain = TERRAIN_LAND;
+      t.elevation = 95 + Math.floor(Math.random() * 15); // 95-110
+      t.district = distIdx;
+      expanded++;
+    }
+  }
+
+  if (expanded === 0) return { success: false, error: 'No valid tiles to expand into' };
+
+  // Run multiple passes to fill gaps (tiles that couldn't expand in first pass
+  // because their neighbors weren't land yet)
+  for (let pass = 0; pass < 3; pass++) {
+    let moreExpanded = 0;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy > radius * radius) continue;
+        const x = center.x + dx, y = center.y + dy;
+        if (!inBounds(map, x, y)) continue;
+        const idx = y * map.width + x;
+        const t = map.tiles[idx];
+        if (t.terrain !== TERRAIN_WATER) continue;
+        let adj = false;
+        for (const [adx, ady] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nx = x + adx, ny = y + ady;
+          if (inBounds(map, nx, ny) && map.tiles[ny * map.width + nx].terrain !== TERRAIN_WATER) {
+            adj = true; break;
+          }
+        }
+        if (!adj) continue;
+        t.terrain = TERRAIN_LAND;
+        t.elevation = 95 + Math.floor(Math.random() * 15);
+        t.district = distIdx;
+        moreExpanded++;
+        expanded++;
+      }
+    }
+    if (moreExpanded === 0) break;
+  }
+
+  computeTags(map);
+  state.stats = computeStats(state);
+  return { success: true };
+}
+
+// ── Create plot at arbitrary coords ──────────────────────────────
+
+function applyCreatePlot(
+  state: TownState,
+  origin: TileCoord,
+  width: number,
+  height: number,
+  districtName: string,
+): { success: boolean; error?: string } {
+  const { map, plots } = state;
+  const distIdx = DISTRICT_NAMES.indexOf(districtName as any);
+  if (distIdx < 0) return { success: false, error: `Unknown district: ${districtName}` };
+
+  // Validate all tiles in the plot area
+  for (let dy = 0; dy < height; dy++) {
+    for (let dx = 0; dx < width; dx++) {
+      const x = origin.x + dx, y = origin.y + dy;
+      if (!inBounds(map, x, y)) return { success: false, error: 'Plot extends out of bounds' };
+      const idx = y * map.width + x;
+      const t = map.tiles[idx];
+      if (t.terrain === TERRAIN_WATER) return { success: false, error: 'Plot covers water tiles' };
+      if (t.road > 0) return { success: false, error: 'Plot covers road tiles' };
+      if (t.buildingId > 0) return { success: false, error: 'Plot covers occupied tiles' };
+    }
+  }
+
+  // Check it doesn't overlap existing plots
+  const plotId = `p_${origin.x}_${origin.y}`;
+  if (plots.has(plotId)) return { success: false, error: 'Plot already exists at this location' };
+
+  const plot: Plot = {
+    id: plotId,
+    originX: origin.x,
+    originY: origin.y,
+    width,
+    height,
+    district: distIdx,
+    occupied: false,
+    buildingId: 0,
+  };
+
+  plots.set(plotId, plot);
+  return { success: true };
+}
+
+// ── Place decoration ─────────────────────────────────────────────
+
+const DECORATION_MAP: Record<string, number> = {
+  tree: 1,
+  bush: 2,
+  rock: 3,
+  fountain: 4,
+  bench: 5,
+};
+
+function applyPlaceDecoration(
+  state: TownState,
+  position: TileCoord,
+  decorationType: string,
+): { success: boolean; error?: string } {
+  const { map } = state;
+  if (!inBounds(map, position.x, position.y)) {
+    return { success: false, error: 'Position out of bounds' };
+  }
+
+  const idx = position.y * map.width + position.x;
+  const t = map.tiles[idx];
+  if (t.terrain === TERRAIN_WATER) return { success: false, error: 'Cannot place decoration on water' };
+  if (t.road > 0) return { success: false, error: 'Cannot place decoration on road' };
+  if (t.buildingId > 0) return { success: false, error: 'Cannot place decoration on building' };
+
+  const decoId = DECORATION_MAP[decorationType];
+  if (!decoId) return { success: false, error: `Unknown decoration type: ${decorationType}` };
+
+  t.clusterId = decoId;
   return { success: true };
 }
 

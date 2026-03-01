@@ -8,6 +8,7 @@ import { probationMap } from '../game/engine';
 import { log } from '../utils/logger';
 import { CLAWD_HQ_ADDRESS } from '../constants';
 import { TownState, applyAction, findPlotForHolder, getArchetypeForTier, DISTRICT_NAMES } from '../town-sim/index';
+import { planBuildingPlacement, executePlacementPlan } from './town-planner';
 
 export interface DecisionRequest {
   walletAddress: string;
@@ -47,6 +48,8 @@ export class DecisionQueue {
   private processing = false;
   private onDecision: DecisionCallback | null = null;
   private onProgress: ProgressCallback | null = null;
+  private onTilemapUpdate: (() => void) | null = null;
+  private onTilemapSave: (() => void) | null = null;
   private db: DB;
   private townState: TownState | null = null;
 
@@ -64,6 +67,14 @@ export class DecisionQueue {
 
   setOnProgress(callback: ProgressCallback): void {
     this.onProgress = callback;
+  }
+
+  setOnTilemapUpdate(callback: () => void): void {
+    this.onTilemapUpdate = callback;
+  }
+
+  setOnTilemapSave(callback: () => void): void {
+    this.onTilemapSave = callback;
   }
 
   private pushProgress(line: string): void {
@@ -286,6 +297,44 @@ export class DecisionQueue {
       // Stage 6: Image generation
       this.pushProgress(`> Rendering building image...`);
       imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
+    }
+
+    // Stage 6: Town planning — place building on tilemap
+    let plotX = walletRow.plot_x;
+    let plotY = walletRow.plot_y;
+
+    if (this.townState) {
+      this.pushProgress(`> Planning building placement...`);
+      const plan = planBuildingPlacement(this.townState, walletRow.house_tier);
+
+      if (plan) {
+        const planResult = executePlacementPlan(this.townState, plan);
+        if (planResult.success && planResult.plotId) {
+          const plot = this.townState.plots.get(planResult.plotId);
+          if (plot && !plot.occupied) {
+            const archetype = getArchetypeForTier(walletRow.house_tier);
+            const buildResult = applyAction(this.townState, {
+              type: 'PLACE_BUILDING_ON_PLOT',
+              plotId: planResult.plotId,
+              archetypeId: archetype.id,
+              ownerAddress: walletAddress,
+              buildingName: decision.building_name,
+            });
+            if (buildResult.success) {
+              plotX = plot.originX;
+              plotY = plot.originY;
+              this.pushProgress(`> Building placed at (${plotX}, ${plotY})`);
+
+              // Update wallet plot coords
+              await this.db.updateWallet(walletAddress, { plot_x: plotX, plot_y: plotY } as any);
+
+              // Schedule tilemap save and broadcast update
+              if (this.onTilemapSave) this.onTilemapSave();
+              if (this.onTilemapUpdate) this.onTilemapUpdate();
+            }
+          }
+        }
+      }
     }
 
     // Store decision in DB

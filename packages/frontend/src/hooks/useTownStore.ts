@@ -66,6 +66,7 @@ interface TownStore {
   mapHeight: number;
   townBuildings: Map<number, TownBuilding>;
   townSeed: number;
+  decorations: Array<{ x: number; y: number; type: number }>;
 
   // Actions
   applySnapshot: (wallets: WalletState[], consoleLines?: string[], tokenMint?: string) => void;
@@ -100,6 +101,7 @@ export const useTownStore = create<TownStore>((set) => ({
   mapHeight: 0,
   townBuildings: new Map(),
   townSeed: 0,
+  decorations: [],
 
   applySnapshot: (wallets, consoleLines, tokenMint) => {
     const map = new Map<string, WalletState>();
@@ -193,6 +195,7 @@ export const useTownStore = create<TownStore>((set) => ({
       mapHeight: meta.height,
       townBuildings: bldMap,
       townSeed: meta.seed,
+      decorations: meta.decorations || [],
     });
   },
 }));

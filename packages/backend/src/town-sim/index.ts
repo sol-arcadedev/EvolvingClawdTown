@@ -3,10 +3,10 @@
 
 export * from './types';
 export * from './prng';
-export { generateTerrain, clusterLand } from './terrain';
+export { generateTerrain, clusterLand, generateSmallIsland } from './terrain';
 export { assignDistricts, generateRoads, createPlots, astarPath } from './layout';
 export { ARCHETYPES, getArchetype, getAllArchetypes, getArchetypeForTier, getArchetypeForDistrict } from './archetypes';
-export { initializeTown, computeStats, computeTags, placeBuilding } from './town';
+export { initializeTown, initializeSmallTown, computeStats, computeTags, placeBuilding } from './town';
 export { applyAction, getTownSummary, getDistrictSummaries, findCandidatePlots, findPlotForHolder } from './actions';
-export { encodeTilemap, encodeBuildingList, createTownSnapshot, decodeTilemapByte0 } from './render-adapter';
-export type { EncodedBuilding, TownSnapshot } from './render-adapter';
+export { encodeTilemap, encodeBuildingList, encodeDecorationList, createTownSnapshot, decodeTilemapByte0 } from './render-adapter';
+export type { EncodedBuilding, EncodedDecoration, TownSnapshot } from './render-adapter';

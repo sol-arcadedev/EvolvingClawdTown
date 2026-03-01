@@ -151,6 +151,58 @@ export function generateTerrain(width: number, height: number, rng: PRNG): TownM
   return { width, height, tiles };
 }
 
+// ── Small island generation for dynamic town ─────────────────────
+// Creates a minimal island with castle platform, moat, and town land.
+
+export function generateSmallIsland(width: number, height: number): TownMap {
+  const tiles: Tile[] = new Array(width * height);
+  const cx = Math.floor(width / 2);
+  const cy = Math.floor(height / 2);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      const dx = x - cx;
+      const dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      let terrain: number;
+      let elevation: number;
+      let district: number = 0; // DISTRICT_NONE
+
+      if (dist <= 2) {
+        // Castle platform — hill at center
+        terrain = TERRAIN_HILL;
+        elevation = 180;
+      } else if (dist <= 4) {
+        // Moat ring — water
+        terrain = TERRAIN_WATER;
+        elevation = 40;
+      } else if (dist <= 14) {
+        // Town land — gentle variation
+        terrain = TERRAIN_LAND;
+        elevation = 100 + Math.floor((14 - dist) / 10 * 20); // 100-120
+      } else {
+        // Ocean — void
+        terrain = TERRAIN_WATER;
+        elevation = 20;
+      }
+
+      tiles[idx] = {
+        terrain,
+        elevation,
+        district,
+        road: 0,
+        buildingId: 0,
+        tags: 0,
+        clusterId: -1,
+      };
+    }
+  }
+
+  return { width, height, tiles };
+}
+
 // ── Cellular automaton clustering ──────────────────────────────────
 // Groups contiguous land tiles into clusters using flood-fill + CA smoothing.
 

@@ -145,6 +145,33 @@ IMAGE PROMPT RULES (CRITICAL — follow exactly):
 - Keep under 25 words — ONLY the building itself, nothing else
 - Good example: "a massive lobster-shaped castle with claw towers, shell-plated copper domes, antennae spires, and golden arched windows"`;
 
+// ── Town review prompt (Phase 3: AI-driven town planning) ────────
+
+export const TOWN_REVIEW_PROMPT = `You are Clawd, reviewing the current state of your town and suggesting improvements.
+
+Current Town State:
+{TOWN_SUMMARY}
+
+Recent Town Actions (last 10):
+{RECENT_ACTIONS}
+
+Based on the current town state, suggest 0-3 strategic improvements. Consider:
+- Is growth balanced across all directions, or is one side overdeveloped?
+- Are there areas with many buildings but no green space (parks)?
+- Are residential areas well-connected by roads?
+- Would a new road hub improve connectivity?
+- Are there gaps in the town that should be filled?
+
+Respond with a JSON array of town actions. Each action should be one of:
+- { "type": "EXPAND_TOWN", "center": { "x": N, "y": N }, "radius": N, "district": "district_name" }
+- { "type": "ADD_ROAD_SEGMENT", "from": { "x": N, "y": N }, "to": { "x": N, "y": N }, "roadType": "main"|"secondary" }
+- { "type": "CREATE_PARK_IN_AREA", "center": { "x": N, "y": N }, "radius": N }
+- { "type": "PLACE_DECORATION", "position": { "x": N, "y": N }, "decorationType": "tree"|"bush"|"rock"|"fountain"|"bench" }
+
+If the town is well-balanced and doesn't need changes, respond with an empty array: []
+
+Respond with valid JSON only. No markdown, no code fences.`;
+
 // Architectural themes to inject variety
 export const ARCHITECTURE_THEMES = [
   'weathered stone',

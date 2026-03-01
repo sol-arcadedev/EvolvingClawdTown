@@ -77,11 +77,34 @@ export function decodeTilemapByte0(byte0: number) {
   };
 }
 
+export interface EncodedDecoration {
+  x: number;
+  y: number;
+  type: number; // 1=tree, 2=bush, 3=rock, 4=fountain, 5=bench
+}
+
+export function encodeDecorationList(state: TownState): EncodedDecoration[] {
+  const result: EncodedDecoration[] = [];
+  const { map } = state;
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const t = map.tiles[y * map.width + x];
+      if (t.clusterId > 0 && t.clusterId <= 5) {
+        result.push({ x, y, type: t.clusterId });
+      }
+    }
+  }
+
+  return result;
+}
+
 export interface TownSnapshot {
   width: number;
   height: number;
   tilemap: Buffer;
   buildings: EncodedBuilding[];
+  decorations: EncodedDecoration[];
   seed: number;
 }
 
@@ -91,6 +114,7 @@ export function createTownSnapshot(state: TownState): TownSnapshot {
     height: state.map.height,
     tilemap: encodeTilemap(state),
     buildings: encodeBuildingList(state),
+    decorations: encodeDecorationList(state),
     seed: state.seed,
   };
 }

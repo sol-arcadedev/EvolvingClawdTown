@@ -157,6 +157,7 @@ export class TownWebSocketServer {
             width: townSnap.width,
             height: townSnap.height,
             buildings: townSnap.buildings,
+            decorations: townSnap.decorations,
             seed: townSnap.seed,
             tilemapSize: townSnap.tilemap.length,
           });
@@ -235,6 +236,33 @@ export class TownWebSocketServer {
       this.consoleLines = this.consoleLines.slice(-14);
     }
     this.broadcast({ type: 'console_line', line });
+  }
+
+  /** Re-send full gzipped tilemap to all connected clients */
+  broadcastTilemapUpdate(): void {
+    const state = this.getTownState();
+    if (!state) return;
+
+    const townSnap = createTownSnapshot(state);
+    const tilemapGz = zlib.gzipSync(townSnap.tilemap);
+    const townMsg = JSON.stringify({
+      type: 'town_snapshot',
+      width: townSnap.width,
+      height: townSnap.height,
+      buildings: townSnap.buildings,
+      decorations: townSnap.decorations,
+      seed: townSnap.seed,
+      tilemapSize: townSnap.tilemap.length,
+    });
+
+    this.wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(townMsg);
+        client.send(tilemapGz);
+      }
+    });
+
+    log.debug(`Broadcast tilemap update: ${tilemapGz.length} bytes to ${this.wss.clients.size} clients`);
   }
 
   getClientCount(): number {

@@ -92,3 +92,15 @@ CREATE TABLE IF NOT EXISTS town_actions (
   actor           TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Persistent tilemap state (single-row table)
+CREATE TABLE IF NOT EXISTS town_tilemap (
+  id         INTEGER PRIMARY KEY DEFAULT 1,
+  width      INTEGER NOT NULL,
+  height     INTEGER NOT NULL,
+  tile_data  BYTEA NOT NULL,
+  plots_json JSONB NOT NULL DEFAULT '[]',
+  version    INTEGER NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT single_row CHECK (id = 1)
+);

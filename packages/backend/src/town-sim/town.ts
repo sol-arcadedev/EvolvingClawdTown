@@ -1,15 +1,16 @@
 // ── Town initialization, stats, and tagging ────────────────────────
 
 import { PRNG } from './prng';
-import { generateTerrain, clusterLand } from './terrain';
-import { assignDistricts, generateRoads, createPlots } from './layout';
+import { generateTerrain, clusterLand, generateSmallIsland } from './terrain';
+import { assignDistricts, generateRoads, createPlots, astarPath } from './layout';
 import { getAllArchetypes, getArchetypeForDistrict, ARCHETYPES } from './archetypes';
 import {
-  TownState, TownMap, TownStats, Tile, Building, Plot,
-  TERRAIN_WATER,
-  DISTRICT_NONE, DISTRICT_NAMES,
+  TownState, TownMap, TownStats, Tile, Building, Plot, TileCoord,
+  TERRAIN_WATER, TERRAIN_LAND,
+  DISTRICT_NONE, DISTRICT_CIVIC, DISTRICT_RESIDENTIAL_LOW, DISTRICT_NAMES,
   TAG_NEAR_CENTER, TAG_NEAR_WATER, TAG_NEAR_MAIN_ROAD,
   TAG_NEAR_SEC_ROAD, TAG_HIGH_ELEVATION, TAG_LOW_ELEVATION, TAG_EDGE_OF_TOWN,
+  inBounds,
 } from './types';
 
 // ── Initialize a complete town from seed ───────────────────────────
@@ -52,6 +53,122 @@ export function initializeTown(seed: number, width = 256, height = 256): TownSta
   state.stats = computeStats(state);
 
   return state;
+}
+
+// ── Initialize a small starting town for dynamic growth ──────────
+
+export function initializeSmallTown(seed: number, width = 256, height = 256): TownState {
+  const rng = new PRNG(seed);
+
+  // 1. Generate small island (ocean + circular land)
+  const map = generateSmallIsland(width, height);
+
+  // 2. Assign districts: inner = CIVIC, outer = RESIDENTIAL_LOW
+  assignSmallTownDistricts(map);
+
+  // 3. Generate 4 stone road spokes from castle bridge outward (N/E/S/W)
+  generateInitialRoads(map);
+
+  // 4. Create plots adjacent to roads
+  const plots = createPlots(map, rng);
+
+  // 5. Compute tags
+  computeTags(map);
+
+  // 6. Build state
+  const state: TownState = {
+    map,
+    plots,
+    buildings: [createNullBuilding()], // index 0 is unused sentinel
+    archetypes: getAllArchetypes(),
+    stats: emptyStats(),
+    seed,
+  };
+
+  // 7. Place castle at center for CLAWD
+  placeCastleAtCenter(state);
+
+  // 8. Compute initial stats (no starter NPC buildings)
+  state.stats = computeStats(state);
+
+  return state;
+}
+
+function assignSmallTownDistricts(map: TownMap): void {
+  const cx = Math.floor(map.width / 2);
+  const cy = Math.floor(map.height / 2);
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const idx = y * map.width + x;
+      const tile = map.tiles[idx];
+      if (tile.terrain === TERRAIN_WATER) continue;
+
+      const dx = x - cx;
+      const dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist <= 8) {
+        tile.district = DISTRICT_CIVIC;
+      } else if (dist <= 14) {
+        tile.district = DISTRICT_RESIDENTIAL_LOW;
+      }
+    }
+  }
+}
+
+function generateInitialRoads(map: TownMap): void {
+  const cx = Math.floor(map.width / 2);
+  const cy = Math.floor(map.height / 2);
+
+  // 4 road spokes: N, E, S, W — from moat bridge to town edge
+  const directions: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+
+  for (const [ddx, ddy] of directions) {
+    // Start from just outside moat (radius 5) to town edge (radius 14)
+    for (let r = 5; r <= 14; r++) {
+      const x = cx + ddx * r;
+      const y = cy + ddy * r;
+      if (!inBounds(map, x, y)) continue;
+      const idx = y * map.width + x;
+      if (map.tiles[idx].terrain !== TERRAIN_WATER) {
+        map.tiles[idx].road = 1; // main road
+      }
+    }
+    // Bridge across moat (radius 3-4)
+    for (let r = 3; r <= 4; r++) {
+      const x = cx + ddx * r;
+      const y = cy + ddy * r;
+      if (!inBounds(map, x, y)) continue;
+      const idx = y * map.width + x;
+      // Convert moat tile to land for the bridge
+      map.tiles[idx].terrain = TERRAIN_LAND;
+      map.tiles[idx].elevation = 100;
+      map.tiles[idx].road = 1;
+    }
+  }
+}
+
+function placeCastleAtCenter(state: TownState): void {
+  const cx = Math.floor(state.map.width / 2);
+  const cy = Math.floor(state.map.height / 2);
+
+  // Create a plot at the castle platform
+  const plotId = `p_${cx}_${cy}`;
+  const castlePlot: Plot = {
+    id: plotId,
+    originX: cx,
+    originY: cy,
+    width: 3,
+    height: 2,
+    district: DISTRICT_CIVIC,
+    occupied: false,
+    buildingId: 0,
+  };
+  state.plots.set(plotId, castlePlot);
+
+  // Place holder_tier5 building for CLAWD
+  placeBuilding(state, castlePlot, 'holder_tier5', null, 'Clawd Architect HQ');
 }
 
 function createNullBuilding(): Building {

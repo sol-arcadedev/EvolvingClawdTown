@@ -21,8 +21,9 @@ import { DecisionQueue, DecisionResult } from './ai/decision-queue';
 import { isAIEnabled } from './ai/clawd-agent';
 import { CLAWD_HQ_ADDRESS } from './constants';
 import {
-  initializeTown, findPlotForHolder, applyAction, getArchetypeForTier,
-  createTownSnapshot, TownState, DISTRICT_NAMES,
+  initializeTown, initializeSmallTown, findPlotForHolder, applyAction, getArchetypeForTier,
+  createTownSnapshot, TownState, DISTRICT_NAMES, computeTags, computeStats,
+  getAllArchetypes, Plot,
 } from './town-sim/index';
 
 interface HeliusTokenAccount {
@@ -232,20 +233,71 @@ const startedAt = Date.now();
 let townState: TownState | null = null;
 export function getTownState(): TownState | null { return townState; }
 
+// Tilemap save scheduler — set during main()
+let _scheduleTilemapSave: (() => void) | null = null;
+
 async function main() {
   const PORT = parseInt(process.env.PORT || '3001');
   const TICK_INTERVAL = parseInt(process.env.TICK_INTERVAL_MS || '30000');
   const TOWN_SEED = parseInt(process.env.TOWN_SEED || '42');
 
-  // Initialize town simulation
-  log.info(`Initializing town simulation (seed: ${TOWN_SEED})...`);
-  townState = initializeTown(TOWN_SEED);
-  log.info(`Town initialized: ${townState.plots.size} plots, ${townState.buildings.length - 1} starter buildings, ${townState.stats.roadTileCount} road tiles`);
-
-  // Database
+  // Database (needed before town init for tilemap persistence)
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   pool.on('error', (err) => log.error('Unexpected PG pool error', err));
   const db = new DB(pool);
+
+  // Initialize town simulation — load from DB or create fresh
+  log.info('Initializing town simulation...');
+  const savedTilemap = await db.loadTilemap();
+  if (savedTilemap) {
+    log.info(`Loaded tilemap from DB (version ${savedTilemap.version}, ${savedTilemap.width}x${savedTilemap.height})`);
+    const map = { width: savedTilemap.width, height: savedTilemap.height, tiles: savedTilemap.tiles };
+    const plots = new Map<string, Plot>();
+    for (const p of savedTilemap.plots) {
+      plots.set(p.id, p);
+    }
+    // Rebuild TownState from saved data
+    const nullBuilding = { id: 0, archetypeId: '', originX: 0, originY: 0, rotation: 0 as const, district: 0, plotId: '', ownerAddress: null, buildingName: null, customImageUrl: null, imagePrompt: null };
+    townState = {
+      map,
+      plots,
+      buildings: [nullBuilding],
+      archetypes: getAllArchetypes(),
+      stats: { population: 0, jobs: 0, commerceScore: 0, greeneryScore: 0, averageDensity: 0, buildingCount: 0, roadTileCount: 0, districtCoverage: {} },
+      seed: TOWN_SEED,
+    };
+    // Recompute tags and stats from loaded data
+    computeTags(map);
+    townState.stats = computeStats(townState);
+    log.info(`Town restored: ${plots.size} plots, ${townState.stats.roadTileCount} road tiles`);
+  } else {
+    log.info(`Creating fresh small town (seed: ${TOWN_SEED})...`);
+    townState = initializeSmallTown(TOWN_SEED);
+    log.info(`Small town created: ${townState.plots.size} plots, ${townState.buildings.length - 1} starter buildings, ${townState.stats.roadTileCount} road tiles`);
+    // Save initial tilemap to DB
+    await db.saveTilemap(townState);
+    log.info('Initial tilemap saved to DB');
+  }
+
+  // Debounced tilemap save — coalesces rapid changes into a single write
+  let tilemapSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  const TILEMAP_SAVE_DEBOUNCE = 30000; // 30s
+
+  // Register the debounced tilemap save function globally
+  _scheduleTilemapSave = () => {
+    if (tilemapSaveTimer) return;
+    tilemapSaveTimer = setTimeout(async () => {
+      tilemapSaveTimer = null;
+      if (townState) {
+        try {
+          await db.saveTilemap(townState);
+          log.debug('Tilemap saved to DB (debounced)');
+        } catch (err) {
+          log.error('Failed to save tilemap:', err);
+        }
+      }
+    }, TILEMAP_SAVE_DEBOUNCE);
+  };
 
   // Redis (optional — for multi-instance pub/sub)
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -304,6 +356,14 @@ async function main() {
   // AI Progress callback — stream Clawd's thinking to the console
   decisionQueue.setOnProgress((line) => {
     wsServer.pushConsoleLine(line);
+  });
+
+  // Tilemap callbacks — save to DB and broadcast to clients
+  decisionQueue.setOnTilemapSave(() => {
+    _scheduleTilemapSave?.();
+  });
+  decisionQueue.setOnTilemapUpdate(() => {
+    wsServer.broadcastTilemapUpdate();
   });
 
   // AI Decision callback — broadcast Clawd decisions to all clients
@@ -553,8 +613,18 @@ async function main() {
   const shutdown = async () => {
     log.info('Shutting down...');
     clearInterval(consoleTimer);
+    if (tilemapSaveTimer) clearTimeout(tilemapSaveTimer);
     tickRunner.stop();
     chainListener?.stop();
+    // Save tilemap immediately on shutdown
+    if (townState) {
+      try {
+        await db.saveTilemap(townState);
+        log.info('Tilemap saved on shutdown');
+      } catch (err) {
+        log.error('Failed to save tilemap on shutdown:', err);
+      }
+    }
     await wsServer.close();
     redisPub?.disconnect();
     await db.end();

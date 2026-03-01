@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from 'pg';
+import zlib from 'zlib';
 
 export interface WalletRow {
   address: string;
@@ -556,6 +557,89 @@ export class DB {
     return rows[0];
   }
 
+  // ── Tilemap persistence ──────────────────────────────────────────
+
+  async saveTilemap(state: {
+    map: { width: number; height: number; tiles: Array<{ terrain: number; elevation: number; district: number; road: number; buildingId: number; tags: number; clusterId: number }> };
+    plots: Map<string, any>;
+  }): Promise<void> {
+    const { map, plots } = state;
+    const { width, height, tiles } = map;
+
+    // Serialize: 7 bytes per tile (terrain, elevation, district, road, buildingId x2, tags)
+    const raw = Buffer.alloc(tiles.length * 7);
+    for (let i = 0; i < tiles.length; i++) {
+      const t = tiles[i];
+      const off = i * 7;
+      raw[off] = t.terrain & 0xff;
+      raw[off + 1] = t.elevation & 0xff;
+      raw[off + 2] = t.district & 0xff;
+      raw[off + 3] = t.road & 0xff;
+      raw.writeUInt16LE(t.buildingId & 0xffff, off + 4);
+      raw[off + 6] = t.tags & 0xff;
+    }
+
+    const tileData = zlib.gzipSync(raw);
+    const plotsArr = Array.from(plots.values());
+
+    await this.pool.query(
+      `INSERT INTO town_tilemap (id, width, height, tile_data, plots_json, version, updated_at)
+       VALUES (1, $1, $2, $3, $4, 1, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         width = EXCLUDED.width,
+         height = EXCLUDED.height,
+         tile_data = EXCLUDED.tile_data,
+         plots_json = EXCLUDED.plots_json,
+         version = town_tilemap.version + 1,
+         updated_at = NOW()`,
+      [width, height, tileData, JSON.stringify(plotsArr)]
+    );
+  }
+
+  async loadTilemap(): Promise<{
+    width: number;
+    height: number;
+    tiles: Array<{ terrain: number; elevation: number; district: number; road: number; buildingId: number; tags: number; clusterId: number }>;
+    plots: Array<any>;
+    version: number;
+  } | null> {
+    const { rows } = await this.pool.query<{
+      width: number;
+      height: number;
+      tile_data: Buffer;
+      plots_json: any;
+      version: number;
+    }>('SELECT width, height, tile_data, plots_json, version FROM town_tilemap WHERE id = 1');
+
+    if (rows.length === 0) return null;
+
+    const row = rows[0];
+    const raw = zlib.gunzipSync(row.tile_data);
+    const tileCount = row.width * row.height;
+    const tiles = new Array(tileCount);
+
+    for (let i = 0; i < tileCount; i++) {
+      const off = i * 7;
+      tiles[i] = {
+        terrain: raw[off],
+        elevation: raw[off + 1],
+        district: raw[off + 2],
+        road: raw[off + 3],
+        buildingId: raw.readUInt16LE(off + 4),
+        tags: raw[off + 6],
+        clusterId: -1,
+      };
+    }
+
+    return {
+      width: row.width,
+      height: row.height,
+      tiles,
+      plots: row.plots_json || [],
+      version: row.version,
+    };
+  }
+
   async resetAll(): Promise<void> {
     const client = await this.pool.connect();
     try {
@@ -565,7 +649,7 @@ export class DB {
         DO $$ BEGIN
           EXECUTE (
             SELECT 'TRUNCATE ' || string_agg(quote_ident(t), ', ') || ' CASCADE'
-            FROM unnest(ARRAY['town_actions','town_buildings','clawd_decisions','trade_events','plot_grid','wallets']) AS t
+            FROM unnest(ARRAY['town_tilemap','town_actions','town_buildings','clawd_decisions','trade_events','plot_grid','wallets']) AS t
             WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public')
           );
         EXCEPTION WHEN others THEN NULL;
