@@ -213,26 +213,20 @@ function applyExpandTown(
 
   let expanded = 0;
 
+  // Fill the entire circle as land (no adjacency constraint)
+  // Add slight noise to radius for organic-looking edges
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
-      if (dx * dx + dy * dy > radius * radius) continue;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // Organic edge: vary the effective radius per-tile using simple hash
+      const edgeNoise = ((dx * 7 + dy * 13) & 3) - 1; // -1 to 2
+      if (dist > radius + edgeNoise) continue;
       const x = center.x + dx, y = center.y + dy;
       if (!inBounds(map, x, y)) continue;
 
       const idx = y * map.width + x;
       const t = map.tiles[idx];
       if (t.terrain !== TERRAIN_WATER) continue;
-
-      // Only expand tiles adjacent to existing land (organic edge growth)
-      let adjacentToLand = false;
-      for (const [adx, ady] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-        const nx = x + adx, ny = y + ady;
-        if (inBounds(map, nx, ny) && map.tiles[ny * map.width + nx].terrain !== TERRAIN_WATER) {
-          adjacentToLand = true;
-          break;
-        }
-      }
-      if (!adjacentToLand) continue;
 
       t.terrain = TERRAIN_LAND;
       t.elevation = 95 + Math.floor(Math.random() * 15); // 95-110
@@ -242,36 +236,6 @@ function applyExpandTown(
   }
 
   if (expanded === 0) return { success: false, error: 'No valid tiles to expand into' };
-
-  // Run multiple passes to fill gaps (tiles that couldn't expand in first pass
-  // because their neighbors weren't land yet)
-  for (let pass = 0; pass < 3; pass++) {
-    let moreExpanded = 0;
-    for (let dy = -radius; dy <= radius; dy++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        if (dx * dx + dy * dy > radius * radius) continue;
-        const x = center.x + dx, y = center.y + dy;
-        if (!inBounds(map, x, y)) continue;
-        const idx = y * map.width + x;
-        const t = map.tiles[idx];
-        if (t.terrain !== TERRAIN_WATER) continue;
-        let adj = false;
-        for (const [adx, ady] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-          const nx = x + adx, ny = y + ady;
-          if (inBounds(map, nx, ny) && map.tiles[ny * map.width + nx].terrain !== TERRAIN_WATER) {
-            adj = true; break;
-          }
-        }
-        if (!adj) continue;
-        t.terrain = TERRAIN_LAND;
-        t.elevation = 95 + Math.floor(Math.random() * 15);
-        t.district = distIdx;
-        moreExpanded++;
-        expanded++;
-      }
-    }
-    if (moreExpanded === 0) break;
-  }
 
   computeTags(map);
   state.stats = computeStats(state);

@@ -69,38 +69,36 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
   const cx = Math.floor(map.width / 2);
   const cy = Math.floor(map.height / 2);
 
-  // Find the best edge tile to expand from
-  const edgeTile = findBestEdgeTile(state, tier);
-  if (!edgeTile) return null;
+  // Find the least-developed angle and the current town radius
+  const { angle, radius } = findGapDirection(state);
 
-  // Determine expansion direction (away from center)
-  const dx = edgeTile.x - cx;
-  const dy = edgeTile.y - cy;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const dirX = dist > 0 ? dx / dist : 1;
-  const dirY = dist > 0 ? dy / dist : 0;
-
-  // Expansion center is a few tiles outward from the edge
+  // Place expansion center at the town edge in the gap direction
+  // This fills in gaps between existing spokes for a rounder shape
+  const dirX = Math.cos(angle);
+  const dirY = Math.sin(angle);
   const expCenter: TileCoord = {
-    x: Math.round(edgeTile.x + dirX * 4),
-    y: Math.round(edgeTile.y + dirY * 4),
+    x: Math.round(cx + dirX * radius),
+    y: Math.round(cy + dirY * radius),
   };
 
   // Clamp to bounds
-  expCenter.x = Math.max(5, Math.min(map.width - 5, expCenter.x));
-  expCenter.y = Math.max(5, Math.min(map.height - 5, expCenter.y));
+  expCenter.x = Math.max(10, Math.min(map.width - 10, expCenter.x));
+  expCenter.y = Math.max(10, Math.min(map.height - 10, expCenter.y));
 
   // Choose district based on tier
   const preferredDistricts = TIER_DISTRICTS[Math.max(1, Math.min(5, tier))] || ['residential_low'];
   const district = preferredDistricts[0];
 
   // Find nearest existing road tile to connect from
-  const nearestRoad = findNearestRoad(state, edgeTile);
+  const nearestRoad = findNearestRoad(state, expCenter);
 
-  // Plan the new plot position (near center of expansion, offset a bit)
+  // Plan the new plot position offset from center (perpendicular to direction)
+  // so it doesn't land on the road connecting to the expansion
+  const perpX = -dirY;  // perpendicular direction
+  const perpY = dirX;
   const plotOrigin: TileCoord = {
-    x: Math.round(edgeTile.x + dirX * 2),
-    y: Math.round(edgeTile.y + dirY * 2),
+    x: Math.round(expCenter.x + perpX * 2),
+    y: Math.round(expCenter.y + perpY * 2),
   };
 
   // Determine plot size based on tier
@@ -108,14 +106,14 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
   const plotH = tier >= 3 ? 2 : 1;
 
   const plan: PlacementPlan = {
-    expansion: { center: expCenter, radius: 6, district },
+    expansion: { center: expCenter, radius: 8, district },
     plot: { origin: plotOrigin, width: plotW, height: plotH, district },
   };
 
   if (nearestRoad) {
     plan.road = {
       from: nearestRoad,
-      to: edgeTile,
+      to: expCenter,
       roadType: 'secondary',
     };
   }
@@ -134,77 +132,52 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
   return plan;
 }
 
-// ── Find best edge tile for expansion ───────────────────────────
+// ── Find the angular gap with least land coverage ───────────────
 
-function findBestEdgeTile(state: TownState, tier: number): TileCoord | null {
+function findGapDirection(state: TownState): { angle: number; radius: number } {
   const { map } = state;
   const cx = Math.floor(map.width / 2);
   const cy = Math.floor(map.height / 2);
 
-  const candidates: { coord: TileCoord; score: number }[] = [];
+  // Scan 24 angular sectors (15° each) and measure land extent in each
+  const SECTORS = 24;
+  const sectorLand: number[] = new Array(SECTORS).fill(0);
+  const sectorMaxDist: number[] = new Array(SECTORS).fill(0);
 
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
-      const idx = y * map.width + x;
-      const t = map.tiles[idx];
-      if (!(t.tags & TAG_EDGE_OF_TOWN)) continue;
+      const t = map.tiles[y * map.width + x];
       if (t.terrain === TERRAIN_WATER) continue;
-
-      // Score: prefer tiles that face open ocean for expansion
-      let oceanNeighbors = 0;
-      for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-        const nx = x + ddx, ny = y + ddy;
-        if (inBounds(map, nx, ny) && map.tiles[ny * map.width + nx].terrain === TERRAIN_WATER) {
-          oceanNeighbors++;
-        }
-      }
-
-      if (oceanNeighbors === 0) continue;
-
-      const distFromCenter = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-      // Higher tiers prefer closer to center; lower tiers prefer further out
-      const distScore = tier >= 4 ? -distFromCenter : distFromCenter * 0.5;
-
-      // Prefer even distribution — score tiles in less-built directions
-      const angle = Math.atan2(y - cy, x - cx);
-      const directionScore = getDirectionDensity(state, angle);
-
-      candidates.push({
-        coord: { x, y },
-        score: oceanNeighbors * 10 + distScore - directionScore * 20,
-      });
+      const dx = x - cx, dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 5) continue; // skip castle area
+      const angle = Math.atan2(dy, dx); // -PI to PI
+      const sector = Math.floor(((angle + Math.PI) / (2 * Math.PI)) * SECTORS) % SECTORS;
+      sectorLand[sector]++;
+      if (dist > sectorMaxDist[sector]) sectorMaxDist[sector] = dist;
     }
   }
 
-  if (candidates.length === 0) return null;
-
-  // Sort by score descending
-  candidates.sort((a, b) => b.score - a.score);
-
-  // Return best candidate (with some randomness for variety)
-  const topN = Math.min(5, candidates.length);
-  const pick = Math.floor(Math.random() * topN);
-  return candidates[pick].coord;
-}
-
-// ── Get building density in a direction from center ─────────────
-
-function getDirectionDensity(state: TownState, angle: number): number {
-  const cx = Math.floor(state.map.width / 2);
-  const cy = Math.floor(state.map.height / 2);
-  let count = 0;
-
-  for (let i = 1; i < state.buildings.length; i++) {
-    const b = state.buildings[i];
-    const bAngle = Math.atan2(b.originY - cy, b.originX - cx);
-    const diff = Math.abs(bAngle - angle);
-    // Within 45 degrees
-    if (diff < Math.PI / 4 || diff > Math.PI * 7 / 4) {
-      count++;
+  // Find the sector with least land (biggest gap)
+  let minLand = Infinity;
+  let gapSector = 0;
+  for (let s = 0; s < SECTORS; s++) {
+    if (sectorLand[s] < minLand) {
+      minLand = sectorLand[s];
+      gapSector = s;
     }
   }
 
-  return count;
+  // Convert sector back to angle (center of sector)
+  const gapAngle = ((gapSector + 0.5) / SECTORS) * 2 * Math.PI - Math.PI;
+
+  // Target radius: average of neighbor sectors' max distances, or town average
+  const prevSector = (gapSector - 1 + SECTORS) % SECTORS;
+  const nextSector = (gapSector + 1) % SECTORS;
+  const neighborAvgDist = (sectorMaxDist[prevSector] + sectorMaxDist[nextSector]) / 2;
+  const targetRadius = Math.max(12, neighborAvgDist > 0 ? neighborAvgDist * 0.8 : 14);
+
+  return { angle: gapAngle, radius: targetRadius };
 }
 
 // ── Find nearest road tile to a position ────────────────────────
@@ -307,26 +280,48 @@ export function executePlacementPlan(
     }
   }
 
-  // 3. Create the plot
-  const plotId = `p_${plan.plot.origin.x}_${plan.plot.origin.y}`;
+  // 3. Create the plot — try the planned origin, then nearby offsets
+  let plotId = `p_${plan.plot.origin.x}_${plan.plot.origin.y}`;
+  let plotCreated = state.plots.has(plotId);
 
-  // Check if plot already exists (from earlier createPlots or expansion)
-  if (!state.plots.has(plotId)) {
-    const result = applyAction(state, {
-      type: 'CREATE_PLOT',
-      origin: plan.plot.origin,
-      width: plan.plot.width,
-      height: plan.plot.height,
-      district: plan.plot.district,
-    });
-    if (!result.success) {
-      log.warn(`Plot creation failed: ${result.error}`);
+  if (!plotCreated) {
+    // Try the planned origin first, then spiral outward to find a clear spot
+    const offsets: [number, number][] = [[0,0]];
+    for (let r = 1; r <= 6; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.abs(dx) === r || Math.abs(dy) === r) {
+            offsets.push([dx, dy]);
+          }
+        }
+      }
+    }
+
+    for (const [ox, oy] of offsets) {
+      const tryOrigin = { x: plan.plot.origin.x + ox, y: plan.plot.origin.y + oy };
+      const tryId = `p_${tryOrigin.x}_${tryOrigin.y}`;
+      if (state.plots.has(tryId)) continue;
+      const result = applyAction(state, {
+        type: 'CREATE_PLOT',
+        origin: tryOrigin,
+        width: plan.plot.width,
+        height: plan.plot.height,
+        district: plan.plot.district,
+      });
+      if (result.success) {
+        plotId = tryId;
+        plotCreated = true;
+        break;
+      }
+    }
+
+    if (!plotCreated) {
       // Try to find any empty plot as fallback
       const fallbackPlot = findAnyEmptyPlot(state);
       if (fallbackPlot) {
         return { success: true, plotId: fallbackPlot.id };
       }
-      return { success: false, error: result.error };
+      return { success: false, error: 'Could not create plot at or near planned location' };
     }
   }
 

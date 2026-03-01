@@ -64,7 +64,7 @@ export function screenToTile(
 // ── Terrain/district color palettes ────────────────────────────
 
 const TERRAIN_COLORS: Record<number, string> = {
-  0: '#3070b0', // water — vivid blue
+  0: '#1a4a80', // water — dark blue
   1: '#6a9a55', // land — bright green
   2: '#b09860', // hill — warm sandy tan
   3: '#2a7a2a', // forest — deep rich green
@@ -97,6 +97,6 @@ export function getTileColor(tile: DecodedTile): string {
 
 export function getWaterColor(frame: number, tileX: number, tileY: number): string {
   const phase = (frame * 0.02 + tileX * 0.1 + tileY * 0.1) % 1;
-  const l = 25 + Math.sin(phase * Math.PI * 2) * 8;
-  return `hsl(210, 50%, ${l}%)`;
+  const l = 18 + Math.sin(phase * Math.PI * 2) * 6;
+  return `hsl(215, 55%, ${l}%)`;
 }
