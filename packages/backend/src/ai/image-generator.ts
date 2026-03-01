@@ -21,9 +21,9 @@ const googleAuth = new GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/cloud-platform'],
 });
 
-// LoRA triggers: isometric_game_assets + Isometric_Setting (both strong for isometric miniature buildings)
-const STYLE_SUFFIX = '<lora:isometric_game_assets:0.8> <lora:Isometric_Setting:0.9> <lora:white_background:3.0> game isometric, Isometric_Setting, isometric house, architecture building with walls and roof, 3d render, 45 degree isometric top-down 3/4 view, single building centered, plain solid white background, game asset, isolated building on white, miniature architecture';
-const NEGATIVE_PROMPT = 'pixel art, pixelated, 8-bit, 16-bit, retro, voxel, cartoon, anime, sketch, drawing, painting, watercolor, flat shading, clipart, interior view, cutaway, cross-section, furniture, object, character, creature, person, abstract, sculpture, blurry, low quality, text, watermark, multiple buildings, front view, side view, eye level, first person, close-up, cropped, zoomed in, low angle, high angle, bird eye view, sky, clouds, landscape, scenery, people, ground, floor, terrain, grass, trees, bushes, flowers, garden, water, rocks, hill, mountain, forest, nature, environment, surroundings';
+// LoRA triggers for SD (pixel art isometric style)
+const STYLE_SUFFIX = '<lora:isometric_game_assets:0.8> <lora:Isometric_Setting:0.9> <lora:white_background:3.0> pixel art, isometric pixel art building, 16-bit style, retro game sprite, clean flat shading, bold outlines, 45 degree isometric top-down 3/4 view, single building centered, plain solid white background, game asset sprite, isolated building on white';
+const NEGATIVE_PROMPT = 'realistic, photorealistic, 3d render, photograph, cinema, film, ray tracing, pbr, reflection, specular, subsurface, cartoon, anime, sketch, drawing, painting, watercolor, clipart, interior view, cutaway, cross-section, furniture, object, character, creature, person, abstract, sculpture, blurry, low quality, text, watermark, multiple buildings, front view, side view, eye level, first person, close-up, cropped, zoomed in, low angle, high angle, bird eye view, sky, clouds, landscape, scenery, people, ground, floor, terrain, grass, trees, bushes, flowers, garden, water, rocks, hill, mountain, forest, nature, environment, surroundings';
 
 const SD_SETTINGS = {
   width: 512,
@@ -174,8 +174,8 @@ async function validateImageTransparency(imageBuffer: Buffer): Promise<{ pass: b
 }
 
 // Imagen 3 prompt style (no LoRA triggers or negative prompts needed)
-const IMAGEN_STYLE_SUFFIX = 'isometric game asset, single isolated building, 45-degree top-down 3/4 view from the south-east corner looking north-west, fixed camera angle, consistent perspective across all buildings, miniature architecture model, building fills 70% of frame, centered in image, pure white background, no ground, no grass, no platform, no base, no floor, no terrain, no environment, no trees, no people, no text, no shadow on ground';
-const IMAGEN_RETRY_BOOST = ', completely isolated floating building with absolutely no ground or grass beneath it, nothing else in the image, building hovering in pure white empty space, exact 45-degree isometric angle';
+const IMAGEN_STYLE_SUFFIX = 'isometric pixel art, 16-bit retro game sprite, clean flat colors with bold dark outlines, single isolated building, 45-degree top-down 3/4 view, fixed camera angle, consistent perspective, pixel art style matching classic SimCity or RollerCoaster Tycoon, building fills 70% of frame, centered in image, pure white background, no ground, no grass, no platform, no base, no floor, no terrain, no environment, no trees, no people, no text, no shadow on ground, no anti-aliasing, crisp pixel edges';
+const IMAGEN_RETRY_BOOST = ', completely isolated floating pixel art building with absolutely no ground or grass beneath it, nothing else in the image, building hovering in pure white empty space, exact 45-degree isometric angle, retro 16-bit game sprite style';
 
 const MAX_IMAGE_ATTEMPTS = 3;
 const RETRY_PROMPT_BOOST = ', completely isolated floating building, absolutely nothing else in the image';

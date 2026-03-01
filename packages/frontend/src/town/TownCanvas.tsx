@@ -10,7 +10,7 @@ import {
   PARTICLE_COUNT,
   PARTICLE_COLORS,
 } from './constants';
-import { getLightSprite, hsl, TIER_U } from './BuildingCache';
+import { hsl, TIER_U } from './BuildingCache';
 import { decodeTilemap, tileToScreen, screenToTile, TILE_W, TILE_H } from './tilemap/TilemapRenderer';
 import type { DecodedTile } from './tilemap/TilemapRenderer';
 import { ChunkCache } from './tilemap/ChunkCache';
@@ -591,22 +591,6 @@ export default function TownCanvas() {
           ctx.fillRect(b.wx - barW / 2, b.wy + 5, barW * (b.bp / 100), barH);
         }
 
-        // Blinking lights
-        if (showAnim && b.lights.length > 0) {
-          const fade = getActivityFade(b.addr, 5000);
-          if (fade > 0) {
-            const lSpr = getLightSprite(b.hue);
-            for (let li = 0; li < b.lights.length; li++) {
-              const l = b.lights[li];
-              const pulse = Math.sin(frame * l.speed + l.phase);
-              if (pulse < 0) continue;
-              const hw = l.size * 1.5;
-              ctx.globalAlpha = pulse * 0.9 * fade;
-              ctx.drawImage(lSpr, b.wx + l.ox - hw, b.wy + l.oy - hw, hw * 2, hw * 2);
-            }
-            ctx.globalAlpha = 1;
-          }
-        }
       }
 
       // ── 3. PARTICLES ──

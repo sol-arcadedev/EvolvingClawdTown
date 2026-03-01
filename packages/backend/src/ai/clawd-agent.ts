@@ -297,23 +297,25 @@ export async function validateImageWithVision(imageBuffer: Buffer): Promise<{ pa
             },
           },
           {
-            text: `Analyze this image. Is it a SINGLE isolated isometric pixel-art building with a transparent or white background and NO environment elements (no ground, no trees, no grass, no sky, no other objects)?
+            text: `Analyze this image. Is it a SINGLE isolated isometric building with a transparent or white background?
 
 Respond with JSON: { "pass": true/false, "reason": "brief explanation" }
 
 Criteria for PASS:
-- Single building structure only
-- Isometric or top-down-ish perspective
-- Clean background (transparent or solid white)
-- No ground, terrain, grass, trees, bushes, water, or other environment
-- No multiple buildings or structures
+- Single building or architectural structure (houses, towers, shops, temples, etc.)
+- Isometric or 3/4 top-down perspective
+- Background is mostly transparent or white (small base tile or platform under the building is OK)
+- No large ground areas, terrain, grass fields, trees, or environment
+- No multiple separate buildings
 
 Criteria for FAIL:
-- Multiple buildings or structures visible
-- Ground, terrain, grass, or environmental elements present
-- Non-isometric perspective (front view, side view, etc.)
-- Busy or detailed background
-- Not a building at all`,
+- Multiple separate buildings visible
+- Large ground areas, terrain, or environmental elements dominating the image
+- Not a building at all (just an object, character, or abstract shape)
+- Busy or detailed background with scenery
+- Non-isometric perspective (pure front view, pure side view)
+
+Note: A small tile/platform directly under the building is acceptable. The style should be pixel art, retro game sprite, or stylized — any game-like art style is fine.`,
           },
         ],
       }],
