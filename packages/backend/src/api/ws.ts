@@ -265,6 +265,14 @@ export class TownWebSocketServer {
     log.debug(`Broadcast tilemap update: ${tilemapGz.length} bytes to ${this.wss.clients.size} clients`);
   }
 
+  /** Terminate all connected clients so they reconnect fresh */
+  disconnectAllClients(): void {
+    for (const client of this.wss.clients) {
+      client.terminate();
+    }
+    log.info(`Disconnected all WebSocket clients`);
+  }
+
   getClientCount(): number {
     return this.wss.clients.size;
   }

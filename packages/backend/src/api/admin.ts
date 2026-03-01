@@ -115,13 +115,15 @@ export function createAdminRouter(deps: AdminDeps): Router {
       await deps.db.saveTilemap(freshState);
       log.info('[ADMIN] Database reset + fresh tilemap generated');
 
-      // Broadcast empty snapshot
-      deps.wsServer.broadcastMessage({
-        type: 'snapshot',
-        wallets: [],
-        consoleLines: [],
-        tokenMint: process.env.TOKEN_MINT_ADDRESS ?? '',
-      });
+      // Stop chain listener
+      const currentListener = deps.getChainListener();
+      if (currentListener) {
+        currentListener.stop();
+        deps.setChainListener(null);
+      }
+
+      // Disconnect all WS clients so they reconnect with fresh state
+      deps.wsServer.disconnectAllClients();
 
       res.json({ success: true, message: 'Database reset complete' });
     } catch (err) {
@@ -207,10 +209,22 @@ export function createAdminRouter(deps: AdminDeps): Router {
       log.info('[ADMIN] Re-seed complete');
       res.json({ success: true, message: 'Re-seed complete' });
 
-      // Drip-feed wallets one by one (after response sent)
-      broadcastWalletsDrip(deps, process.env.TOKEN_MINT_ADDRESS ?? '').catch((err) =>
-        log.error('[ADMIN] Drip broadcast failed:', err)
-      );
+      // Start/restart chain listener for current token
+      const mint = process.env.TOKEN_MINT_ADDRESS;
+      const rpcUrl = process.env.HELIUS_RPC_URL;
+      if (mint && rpcUrl) {
+        const existingListener = deps.getChainListener();
+        if (existingListener) {
+          existingListener.stop();
+        }
+        const newListener = new ChainListener(rpcUrl, mint, deps.db, deps.handleGameEvent);
+        await newListener.start();
+        deps.setChainListener(newListener);
+        log.info('[ADMIN] Chain listener restarted after reseed');
+      }
+
+      // Disconnect all WS clients so they reconnect with fresh data
+      deps.wsServer.disconnectAllClients();
 
       // Queue Clawd HQ first, then holder buildings
       deps.decisionQueue.queueClawdHQ();

@@ -553,8 +553,15 @@ async function main() {
   };
 
   if (mintAddress && rpcUrl && mintAddress !== 'your_pump_fun_token_mint_pubkey') {
-    chainListener = new ChainListener(rpcUrl, mintAddress, db, handleGameEvent);
-    await chainListener.start();
+    // Only start chain listener if there are existing holders in DB
+    // (fresh/empty DB should wait for set-token or reseed to start listening)
+    const stats = await db.getStats();
+    if (stats.totalHolders > 0) {
+      chainListener = new ChainListener(rpcUrl, mintAddress, db, handleGameEvent);
+      await chainListener.start();
+    } else {
+      log.info('Empty DB — chain listener will start after set-token or reseed');
+    }
   } else {
     log.warn('TOKEN_MINT_ADDRESS not configured — chain listener disabled');
   }
