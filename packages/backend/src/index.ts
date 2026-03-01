@@ -137,7 +137,7 @@ async function seedHolders(db: DB, force = false) {
       if (tmPlot && !tmPlot.occupied) {
         plotX = tmPlot.originX;
         plotY = tmPlot.originY;
-        const archetype = getArchetypeForTier(tier);
+        const archetype = getArchetypeForTier(1);
         applyAction(townState, {
           type: 'PLACE_BUILDING_ON_PLOT',
           plotId: tmPlot.id,
@@ -158,8 +158,8 @@ async function seedHolders(db: DB, force = false) {
       plotY = fallback.y;
     }
     try {
-      await db.createWallet(ownerAddress, balance, plotX, plotY, tier, hue);
-      // Existing holders are already established — mark buildings as fully built
+      await db.createWallet(ownerAddress, balance, plotX, plotY, 1, hue);
+      // Existing holders start at T1 with full progress — ready to evolve on next ticks
       await db.updateWallet(ownerAddress, { build_progress: 100 });
       created++;
       if (created % 50 === 0) log.info(`  Seeded ${created} / ${sorted.length} wallets...`);
@@ -260,7 +260,7 @@ async function migrateWalletsToTilemap(db: DB) {
     }
 
     if (!plot.occupied) {
-      const archetype = getArchetypeForTier(w.house_tier);
+      const archetype = getArchetypeForTier(1);
       applyAction(townState, {
         type: 'PLACE_BUILDING_ON_PLOT',
         plotId: plot.id,

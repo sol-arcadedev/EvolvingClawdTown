@@ -81,8 +81,10 @@ describe('GameEngine.processEvent', () => {
   });
 
   describe('new wallet', () => {
-    it('creates a new wallet with correct tier and assigns plot', async () => {
+    it('creates a new wallet at tier 1 regardless of balance', async () => {
       const db = createMockDB(null, 9000000n);
+      // Mock getNextPlotForTier since engine uses that for fallback
+      (db as any).getNextPlotForTier = vi.fn().mockResolvedValue({ x: 1, y: 1 });
       const engine = new GameEngine(db);
 
       const event = makeEvent({
@@ -96,11 +98,12 @@ describe('GameEngine.processEvent', () => {
 
       expect(result).not.toBeNull();
       expect(result!.isNew).toBe(true);
+      // Always starts at tier 1 — progression happens via ticks
+      expect(result!.walletState.house_tier).toBe(1);
       expect(result!.walletState.build_progress).toBe(0);
       expect(result!.walletState.damage_pct).toBe(0);
       expect(result!.walletState.build_speed_mult).toBe(1);
       expect(db.createWallet).toHaveBeenCalled();
-      expect(db.getNextPlot).toHaveBeenCalled();
     });
   });
 
@@ -261,6 +264,7 @@ describe('GameEngine.processEvent', () => {
 
       const result = await engine.processEvent(event);
 
+      expect(result!.walletState.house_tier).toBe(0);
       expect(result!.walletState.build_progress).toBe(0);
       expect(result!.walletState.damage_pct).toBe(0);
       expect(result!.walletState.build_speed_mult).toBe(1);
@@ -271,6 +275,9 @@ describe('GameEngine.processEvent', () => {
 
 // --- Tick Tests ---
 
+// Large supply so default wallet (1M tokens) has negligible % → build speed scaling ≈ 1.0x
+const TICK_TOTAL_SUPPLY = 100_000_000_000n;
+
 describe('applyTickToWallet', () => {
   it('does not modify wallets with zero balance', () => {
     const wallet = makeWalletRow({
@@ -278,7 +285,7 @@ describe('applyTickToWallet', () => {
       build_progress: '50.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     expect(result.build_progress).toBe(50);
   });
@@ -289,7 +296,7 @@ describe('applyTickToWallet', () => {
       build_speed_mult: '1.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     // BASE_BUILD_RATE = 0.5, mult = 1.0 → +0.5
     expect(result.build_progress).toBe(10.5);
@@ -301,7 +308,7 @@ describe('applyTickToWallet', () => {
       build_speed_mult: '3.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     // 0.5 * 3.0 = 1.5
     expect(result.build_progress).toBe(11.5);
@@ -313,7 +320,7 @@ describe('applyTickToWallet', () => {
       build_speed_mult: '1.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     expect(result.build_progress).toBe(100);
   });
@@ -324,7 +331,7 @@ describe('applyTickToWallet', () => {
       build_speed_mult: '1.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     expect(result.build_progress).toBe(100);
   });
@@ -334,7 +341,7 @@ describe('applyTickToWallet', () => {
       damage_pct: '10.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     // REPAIR_RATE_PER_TICK = 0.3
     expect(result.damage_pct).toBe(9.7);
@@ -345,7 +352,7 @@ describe('applyTickToWallet', () => {
       damage_pct: '0.10',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     expect(result.damage_pct).toBe(0);
   });
@@ -356,7 +363,7 @@ describe('applyTickToWallet', () => {
       boost_expires_at: new Date(Date.now() - 1000), // expired 1s ago
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     expect(result.build_speed_mult).toBe(1);
     expect(result.boost_expires_at).toBeNull();
@@ -368,7 +375,7 @@ describe('applyTickToWallet', () => {
       boost_expires_at: new Date(Date.now() + 60000), // 1 min in future
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     expect(result.build_speed_mult).toBe(3);
     expect(result.boost_expires_at).not.toBeNull();
@@ -381,7 +388,7 @@ describe('applyTickToWallet', () => {
       build_speed_mult: '2.00',
     });
 
-    const result = applyTickToWallet(wallet);
+    const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
     // Build: 50 + (0.5 * 2.0) = 51.0
     expect(result.build_progress).toBe(51);

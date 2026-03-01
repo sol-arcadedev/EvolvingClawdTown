@@ -1,7 +1,6 @@
 import { DB, WalletRow, WalletStateUpdate } from '../db/queries';
 import {
   getTier,
-  getEffectiveTier,
   walletPctOfSupply,
   calcDamage,
   calcBuildSpeedBoost,
@@ -54,16 +53,16 @@ export class GameEngine {
       const totalSupply = await this.db.getTotalSupply();
       const effectiveSupply = totalSupply + event.newBalance; // include this wallet's new balance
       const pct = walletPctOfSupply(event.newBalance, effectiveSupply);
-      const tier = getTier(pct);
+      const maxTier = getTier(pct); // used for plot selection (whales get central plots)
 
       // Try tilemap plot first, fall back to spiral grid
       let plotX = 0, plotY = 0;
       if (this.townState) {
-        const tmPlot = findPlotForHolder(this.townState, tier);
+        const tmPlot = findPlotForHolder(this.townState, maxTier);
         if (tmPlot) {
           plotX = tmPlot.originX;
           plotY = tmPlot.originY;
-          const archetype = getArchetypeForTier(tier);
+          const archetype = getArchetypeForTier(1);
           applyAction(this.townState, {
             type: 'PLACE_BUILDING_ON_PLOT',
             plotId: tmPlot.id,
@@ -71,22 +70,23 @@ export class GameEngine {
             ownerAddress: event.walletAddress,
           });
         } else {
-          const fallback = await this.db.getNextPlotForTier(tier);
+          const fallback = await this.db.getNextPlotForTier(maxTier);
           plotX = fallback.x;
           plotY = fallback.y;
         }
       } else {
-        const fallback = await this.db.getNextPlotForTier(tier);
+        const fallback = await this.db.getNextPlotForTier(maxTier);
         plotX = fallback.x;
         plotY = fallback.y;
       }
 
+      // Always start at tier 1 — progression happens via ticks
       wallet = await this.db.createWallet(
         event.walletAddress,
         event.newBalance,
         plotX,
         plotY,
-        tier,
+        1,
         hue
       );
       isNew = true;
@@ -108,7 +108,7 @@ export class GameEngine {
         walletState: {
           address: event.walletAddress,
           token_balance: event.newBalance,
-          house_tier: tier,
+          house_tier: 1,
           build_progress: 0,
           damage_pct: 0,
           build_speed_mult: 1,
@@ -145,19 +145,18 @@ export class GameEngine {
     // Existing wallet — apply game rules
     const totalSupply = await this.db.getTotalSupply();
     const pct = walletPctOfSupply(event.newBalance, totalSupply);
-    const baseTier = getTier(pct);
-    const holdingDurationMs = Date.now() - wallet.first_seen_at.getTime();
-    const newTier = getEffectiveTier(baseTier, holdingDurationMs);
-    const oldTier = wallet.house_tier;
+    const maxTier = getTier(pct); // ceiling — tier only goes UP via tick progression
+    const currentTier = wallet.house_tier;
 
     let buildProgress = parseFloat(wallet.build_progress);
     let damagePct = parseFloat(wallet.damage_pct);
     let buildSpeedMult = parseFloat(wallet.build_speed_mult);
     let boostExpiresAt = wallet.boost_expires_at;
+    let houseTier = currentTier;
 
     switch (event.type) {
       case 'buy': {
-        // Boost build speed
+        // Boost build speed — tier stays the same, progression via ticks
         buildSpeedMult = calcBuildSpeedBoost(buildSpeedMult);
         boostExpiresAt = new Date(Date.now() + BUY_BOOST_DURATION_MS);
         break;
@@ -175,16 +174,18 @@ export class GameEngine {
           buildProgress = 0;
         }
 
-        // Tier downgrade — clamp progress
-        if (newTier < oldTier) {
-          buildProgress = calcTierDowngradeProgress(oldTier, newTier, buildProgress);
+        // Sell downgrade — if maxTier dropped below current tier, force downgrade
+        if (maxTier < currentTier) {
+          buildProgress = calcTierDowngradeProgress(currentTier, maxTier, buildProgress);
+          houseTier = maxTier;
         }
         break;
       }
     }
 
-    // Zero balance — no house
+    // Zero balance — destroyed (tier 0)
     if (event.newBalance <= 0n) {
+      houseTier = 0;
       buildProgress = 0;
       damagePct = 0;
       buildSpeedMult = 1;
@@ -194,7 +195,7 @@ export class GameEngine {
     const update: WalletStateUpdate = {
       address: event.walletAddress,
       token_balance: event.newBalance,
-      house_tier: newTier,
+      house_tier: houseTier,
       build_progress: Math.round(buildProgress * 100) / 100,
       damage_pct: Math.round(damagePct * 100) / 100,
       build_speed_mult: Math.round(buildSpeedMult * 100) / 100,
