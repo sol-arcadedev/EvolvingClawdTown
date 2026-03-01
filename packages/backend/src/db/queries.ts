@@ -230,12 +230,19 @@ export class DB {
       const { rows } = await client.query<WalletRow>(
         `INSERT INTO wallets (address, token_balance, plot_x, plot_y, house_tier, color_hue)
          VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (address) DO UPDATE SET
+           token_balance = EXCLUDED.token_balance,
+           plot_x = EXCLUDED.plot_x,
+           plot_y = EXCLUDED.plot_y,
+           house_tier = EXCLUDED.house_tier,
+           color_hue = EXCLUDED.color_hue
          RETURNING *`,
         [address, tokenBalance.toString(), plotX, plotY, houseTier, colorHue]
       );
 
       await client.query(
-        `INSERT INTO plot_grid (x, y, address) VALUES ($1, $2, $3)`,
+        `INSERT INTO plot_grid (x, y, address) VALUES ($1, $2, $3)
+         ON CONFLICT (x, y) DO UPDATE SET address = EXCLUDED.address`,
         [plotX, plotY, address]
       );
 

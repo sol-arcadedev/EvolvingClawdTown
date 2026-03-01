@@ -113,6 +113,8 @@ async function seedHolders(db: DB, force = false) {
 
   let created = 0;
   for (const [ownerAddress, balance] of sorted) {
+    // Skip Clawd HQ address — already seeded separately
+    if (ownerAddress === CLAWD_HQ_ADDRESS) continue;
     const pct = walletPctOfSupply(balance, totalSupply);
     const tier = getTier(pct);
     const hue = colorHueFromAddress(ownerAddress);
@@ -155,11 +157,15 @@ async function seedHolders(db: DB, force = false) {
       plotX = fallback.x;
       plotY = fallback.y;
     }
-    await db.createWallet(ownerAddress, balance, plotX, plotY, tier, hue);
-    // Existing holders are already established — mark buildings as fully built
-    await db.updateWallet(ownerAddress, { build_progress: 100 });
-    created++;
-    if (created % 50 === 0) log.info(`  Seeded ${created} / ${sorted.length} wallets...`);
+    try {
+      await db.createWallet(ownerAddress, balance, plotX, plotY, tier, hue);
+      // Existing holders are already established — mark buildings as fully built
+      await db.updateWallet(ownerAddress, { build_progress: 100 });
+      created++;
+      if (created % 50 === 0) log.info(`  Seeded ${created} / ${sorted.length} wallets...`);
+    } catch (err: any) {
+      log.warn(`Failed to seed wallet ${ownerAddress.slice(0, 8)}...: ${err.message}`);
+    }
   }
 
   log.info(`Seed complete — created ${created} wallets`);

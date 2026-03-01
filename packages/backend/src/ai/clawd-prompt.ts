@@ -53,16 +53,18 @@ IMAGE PROMPT RULES (CRITICAL — follow exactly):
 - Do NOT include ANY background: no sky, no clouds, no mountains, no hills, no scenery, no landscape
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
+- Do NOT include camera or viewing angle words (top-down, side view, front view, isometric, etc.)
 - Keep under 25 words — ONLY the building itself, nothing else
-- Good example: "a tall stone tower with blue crystal windows and a pointed copper roof"
+- IMPORTANT: All buildings share one tile grid. Describe buildings as if they are miniature models sitting on a table, all at the same consistent scale relative to each other. A tier-1 shack is small, a tier-5 castle is large, but they exist in the same world at the same scale.
+- Good example: "a small one-story wooden shack with a tin roof and a single window"
 - Bad example: "a stone cottage surrounded by pine trees on a grassy hill with a winding path"
 
-Building scale by tier:
-- Tier 1 (tiny holder): Small wooden shack, simple hut, lean-to shelter
-- Tier 2 (small holder): Stone cottage, small shop with awning, modest house
-- Tier 3 (medium holder): Two-story timber building, watchtower, workshop
-- Tier 4 (large holder): Grand stone hall, tall tower with balconies, fortified manor
-- Tier 5 (whale): Castle, palace, cathedral — massive and ornate
+Building scale by tier (relative to each other — imagine them side by side):
+- Tier 1 (tiny holder): Small one-story wooden shack, simple hut, lean-to shelter (1 tile footprint)
+- Tier 2 (small holder): Modest stone cottage, small shop with awning (1 tile, slightly taller)
+- Tier 3 (medium holder): Two-story timber building, watchtower, workshop (taller, wider base)
+- Tier 4 (large holder): Grand stone hall, tall tower with balconies (2+ stories, imposing)
+- Tier 5 (whale): Castle, palace, cathedral — tallest and most ornate (3+ stories)
 
 BEHAVIORAL REACTIONS (override tier guidelines when behavior conflicts):
 - If "Prodigal Son": building MUST show visible repair work — patched walls, fresh mortar on old cracks, replaced roof sections
@@ -104,6 +106,7 @@ IMAGE PROMPT RULES (CRITICAL — follow exactly):
 - Do NOT include ANY background: no sky, no clouds, no mountains, no scenery, no landscape
 - Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
 - Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
+- Do NOT include camera or viewing angle words (top-down, side view, front view, isometric, etc.)
 - Keep under 25 words — ONLY the damaged building itself
 - Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, crumbling chimney`;
 

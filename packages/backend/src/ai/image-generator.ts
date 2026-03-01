@@ -7,6 +7,10 @@ import { validateImageWithVision } from './clawd-agent';
 
 const SD_API_URL = process.env.SD_API_URL || 'http://127.0.0.1:7860';
 
+function isLayerDiffuseEnabled(): boolean {
+  return process.env.LAYERDIFFUSE_ENABLED === 'true';
+}
+
 // Imagen 3 config (Vertex AI)
 const GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'clawdtown';
 const GOOGLE_CLOUD_REGION = process.env.GOOGLE_CLOUD_REGION || 'us-east5';
@@ -17,9 +21,9 @@ const googleAuth = new GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/cloud-platform'],
 });
 
-// LoRA trigger: <lora:pixelartredmond-1-5v:0.85> with trigger word "Pixel Art" / "PIXARFK"
-const STYLE_SUFFIX = '<lora:Isometric_Setting:0.95> <lora:pixelartredmond-1-5v:0.65> Isometric_Setting, PIXARFK, Pixel Art, isometric view, single building only, plain solid white background, clean pixel art, 16-bit style, centered, game asset, isolated object, no ground, no floor, no terrain, no trees, no environment, floating building, nothing beneath, nothing around';
-const NEGATIVE_PROMPT = '3d render, realistic, photograph, blurry, low quality, text, watermark, multiple buildings, multiple structures, tileset, sprite sheet, many objects, front view, side view, top down, first person, close-up, cropped, interior, zoomed in, detailed background, gradient, sky, clouds, sun, horizon, landscape, scenery, people, characters, ground texture, dirt, sand, desert, ground, floor, terrain, grass, path, pavement, road, platform, base, pedestal, foundation visible, trees, tree, bushes, flowers, garden, fence, yard, pond, lake, river, water, rocks, hill, mountain, forest, nature, environment, surroundings';
+// LoRA triggers: isometric_game_assets + Isometric_Setting (both strong for isometric miniature buildings)
+const STYLE_SUFFIX = '<lora:isometric_game_assets:0.8> <lora:Isometric_Setting:0.9> <lora:white_background:3.0> game isometric, Isometric_Setting, isometric house, architecture building with walls and roof, 3d render, 45 degree isometric top-down 3/4 view, single building centered, plain solid white background, game asset, isolated building on white, miniature architecture';
+const NEGATIVE_PROMPT = 'pixel art, pixelated, 8-bit, 16-bit, retro, voxel, cartoon, anime, sketch, drawing, painting, watercolor, flat shading, clipart, interior view, cutaway, cross-section, furniture, object, character, creature, person, abstract, sculpture, blurry, low quality, text, watermark, multiple buildings, front view, side view, eye level, first person, close-up, cropped, zoomed in, low angle, high angle, bird eye view, sky, clouds, landscape, scenery, people, ground, floor, terrain, grass, trees, bushes, flowers, garden, water, rocks, hill, mountain, forest, nature, environment, surroundings';
 
 const SD_SETTINGS = {
   width: 512,
@@ -170,20 +174,42 @@ async function validateImageTransparency(imageBuffer: Buffer): Promise<{ pass: b
 }
 
 // Imagen 3 prompt style (no LoRA triggers or negative prompts needed)
-const IMAGEN_STYLE_SUFFIX = 'isometric pixel art, single isolated building, plain white background, game asset sprite, 16-bit style, centered, no environment, no ground, no trees, no people, no text';
-const IMAGEN_RETRY_BOOST = ', completely isolated floating building, absolutely nothing else in the image, pure white empty background';
+const IMAGEN_STYLE_SUFFIX = 'isometric game asset, single isolated building, 45-degree top-down 3/4 view from the south-east corner looking north-west, fixed camera angle, consistent perspective across all buildings, miniature architecture model, building fills 70% of frame, centered in image, pure white background, no ground, no grass, no platform, no base, no floor, no terrain, no environment, no trees, no people, no text, no shadow on ground';
+const IMAGEN_RETRY_BOOST = ', completely isolated floating building with absolutely no ground or grass beneath it, nothing else in the image, building hovering in pure white empty space, exact 45-degree isometric angle';
 
 const MAX_IMAGE_ATTEMPTS = 3;
 const RETRY_PROMPT_BOOST = ', completely isolated floating building, absolutely nothing else in the image';
 
 async function callSD(prompt: string): Promise<Buffer | null> {
-  const body = {
+  const body: Record<string, any> = {
     prompt,
     negative_prompt: NEGATIVE_PROMPT,
     ...SD_SETTINGS,
     batch_size: 1,
     n_iter: 1,
   };
+
+  if (isLayerDiffuseEnabled()) {
+    body.alwayson_scripts = {
+      LayerDiffuse: {
+        args: [
+          true,                                                            // enabled
+          '(SD1.5) Only Generate Transparent Image (Attention Injection)',  // method
+          1.0,                                                             // weight
+          1.0,                                                             // ending_step
+          null,                                                            // fg_image
+          null,                                                            // bg_image
+          null,                                                            // blend_image
+          'Crop and Resize',                                               // resize_mode
+          false,                                                           // output_origin
+          '',                                                              // fg_additional_prompt
+          '',                                                              // bg_additional_prompt
+          '',                                                              // blend_additional_prompt
+        ],
+      },
+    };
+    log.info('LayerDiffuse enabled — requesting native transparency');
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
@@ -208,6 +234,11 @@ async function callSD(prompt: string): Promise<Buffer | null> {
     if (!images || images.length === 0) {
       log.error('SD API returned no images');
       return null;
+    }
+
+    // LayerDiffuse: images[0]=transparent PNG, images[1]=checkerboard visualization
+    if (isLayerDiffuseEnabled() && images.length >= 2) {
+      log.info('Using LayerDiffuse transparent output (images[0])');
     }
 
     return Buffer.from(images[0], 'base64');
@@ -301,7 +332,10 @@ async function generateImageDirect(prompt: string, walletAddress: string): Promi
       }
     }
 
-    const imageBuffer = await removeBackground(rawBuffer);
+    // Skip flood-fill bg removal when LayerDiffuse provides native transparency
+    const imageBuffer = (!useImagen && isLayerDiffuseEnabled())
+      ? await sharp(rawBuffer).png().toBuffer()
+      : await removeBackground(rawBuffer);
 
     // Layer 1: Transparency check
     const transparency = await validateImageTransparency(imageBuffer);

@@ -77,6 +77,13 @@ export class DecisionQueue {
     this.onTilemapSave = callback;
   }
 
+  /** Clear all pending decisions (used on DB reset / reseed) */
+  clearQueue(): void {
+    const count = this.queue.length;
+    this.queue = [];
+    if (count > 0) log.info(`Decision queue cleared (${count} pending items removed)`);
+  }
+
   private pushProgress(line: string): void {
     if (this.onProgress) this.onProgress(line);
   }

@@ -10,7 +10,7 @@ import {
   PARTICLE_COUNT,
   PARTICLE_COLORS,
 } from './constants';
-import { getBuildingSprite, getLightSprite, hsl, TIER_U } from './BuildingCache';
+import { getLightSprite, hsl, TIER_U } from './BuildingCache';
 import { decodeTilemap, tileToScreen, screenToTile, TILE_W, TILE_H } from './tilemap/TilemapRenderer';
 import type { DecodedTile } from './tilemap/TilemapRenderer';
 import { ChunkCache } from './tilemap/ChunkCache';
@@ -576,17 +576,8 @@ export default function TownCanvas() {
             const drawW = baseSize * aspect;
             const drawH = baseSize;
             ctx.drawImage(aiImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
-          } else {
-            const { src, bbox, u } = getBuildingSprite(b.tier, b.hue);
-            const scale = bldScale * 0.4; // scale down procedural sprites for tilemap
-            ctx.drawImage(
-              src,
-              b.wx + bbox.minX * u * scale,
-              b.wy + bbox.minY * u * scale,
-              (bbox.maxX - bbox.minX) * u * scale,
-              (bbox.maxY - bbox.minY) * u * scale,
-            );
           }
+          // No fallback — buildings without AI images are simply not rendered
         }
 
         if (needAlpha) ctx.globalAlpha = 1;

@@ -105,8 +105,15 @@ export function createAdminRouter(deps: AdminDeps): Router {
   // Reset database
   router.post('/api/admin/reset-db', async (_req: Request, res: Response) => {
     try {
+      deps.decisionQueue.clearQueue();
       await deps.db.resetAll();
-      log.info('[ADMIN] Database reset');
+
+      // Regenerate fresh tilemap
+      const { initializeSmallTown } = await import('../town-sim/index');
+      const freshState = initializeSmallTown(Date.now());
+      deps.setTownState(freshState);
+      await deps.db.saveTilemap(freshState);
+      log.info('[ADMIN] Database reset + fresh tilemap generated');
 
       // Broadcast empty snapshot
       deps.wsServer.broadcastMessage({
@@ -182,8 +189,20 @@ export function createAdminRouter(deps: AdminDeps): Router {
   // Re-seed holders
   router.post('/api/admin/reseed', async (_req: Request, res: Response) => {
     try {
+      deps.decisionQueue.clearQueue();
+
+      // Regenerate fresh tilemap before seeding
+      const { initializeSmallTown } = await import('../town-sim/index');
+      const freshState = initializeSmallTown(Date.now());
+      deps.setTownState(freshState);
+      await deps.db.saveTilemap(freshState);
+
       await deps.seedClawdHQ();
       await deps.seedHolders(true);
+
+      // Save tilemap after seeding (town may have expanded)
+      const townState = deps.getTownState();
+      if (townState) await deps.db.saveTilemap(townState);
 
       log.info('[ADMIN] Re-seed complete');
       res.json({ success: true, message: 'Re-seed complete' });
