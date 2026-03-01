@@ -4,13 +4,12 @@ import type { WalletState } from '../types';
 import {
   COL_BG,
   PLOT_STRIDE,
-  TIER_SCALE,
   ZOOM_MIN,
   ZOOM_MAX,
   PARTICLE_COUNT,
   PARTICLE_COLORS,
 } from './constants';
-import { hsl, TIER_U } from './BuildingCache';
+import { hsl } from './BuildingCache';
 import { decodeTilemap, tileToScreen, screenToTile, TILE_W, TILE_H } from './tilemap/TilemapRenderer';
 import type { DecodedTile } from './tilemap/TilemapRenderer';
 import { ChunkCache } from './tilemap/ChunkCache';
@@ -21,8 +20,7 @@ import { onTileTexturesLoaded } from './tilemap/TileAtlas';
  *
  *  Renders a 256x256 isometric tilemap (terrain, districts, roads)
  *  with buildings placed on tilemap coordinates.
- *  Keeps all existing building rendering (AI images, procedural sprites,
- *  blinking lights, progress bars, particles).
+ *  Renders AI-generated building images, progress bars, and particles.
  * ─────────────────────────────────────────────────────────── */
 
 const CLAWD_HQ_ADDRESS = 'clawd-architect-hq';
@@ -69,59 +67,6 @@ function resetParticle(p: Particle) {
   p.maxLife = 300 + Math.random() * 500;
 }
 
-// ── BLINKING LIGHTS ──
-const LIGHT_COUNTS = [0, 1, 2, 3, 5, 8];
-const TIER_DIMS: [number, number, number][] = [
-  [0,0,0], [4,4,3], [5,5,6], [6,6,9], [7,7,14], [8,8,20],
-];
-
-function isoXY(bx: number, by: number, bz: number): [number, number] {
-  return [bx - by, (bx + by) * 0.5 - bz];
-}
-
-function addrHash(addr: string): number {
-  let h = 0;
-  for (let i = 0; i < addr.length; i++) {
-    h = ((h << 5) - h + addr.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-interface BldLight {
-  ox: number; oy: number;
-  phase: number; speed: number; size: number;
-}
-
-function computeLights(addr: string, tier: number): BldLight[] {
-  const count = LIGHT_COUNTS[tier] ?? 0;
-  if (count === 0) return [];
-  const [bw, bd, bh] = TIER_DIMS[tier];
-  const u = TIER_U[tier];
-  const hash = addrHash(addr);
-  const lights: BldLight[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const seed = ((hash * 31 + i * 97) & 0x7fffffff) / 0x7fffffff;
-    const seed2 = ((hash * 53 + i * 71) & 0x7fffffff) / 0x7fffffff;
-    const onRight = i % 2 === 0;
-    const faceY = seed * (bd * 0.7) + bd * 0.15;
-    const faceZ = (seed2 * 0.6 + 0.2) * bh;
-    let ix: number, iy: number;
-    if (onRight) {
-      [ix, iy] = isoXY(bw / 2, -bd / 2 + faceY, faceZ);
-    } else {
-      const faceX = seed * (bw * 0.7) + bw * 0.15;
-      [ix, iy] = isoXY(-bw / 2 + faceX, bd / 2, faceZ);
-    }
-    lights.push({
-      ox: ix * u, oy: iy * u,
-      phase: seed * Math.PI * 2,
-      speed: 0.15 + seed2 * 0.25,
-      size: (0.6 + seed2 * 0.5) * u,
-    });
-  }
-  return lights;
-}
 
 // ── CLAWD HQ STATIC IMAGE ──
 let clawdHQImage: HTMLImageElement | null = null;
@@ -165,7 +110,6 @@ interface Bld {
   bp: number; dmg: number;
   addr: string;
   depth: number;
-  lights: BldLight[];
   customImageUrl?: string | null;
 }
 
@@ -180,7 +124,6 @@ function makeBld(addr: string, w: WalletState, tiles: DecodedTile[] | null, mapW
     tier, hue: w.colorHue,
     bp: w.buildProgress, dmg: w.damagePct, addr,
     depth: w.plotX + w.plotY, // isometric depth sort
-    lights: computeLights(addr, tier),
     customImageUrl: w.customImageUrl,
   };
 }
@@ -442,9 +385,6 @@ export default function TownCanvas() {
             structural = true;
           }
           const newTier = Math.min(w.houseTier, 5);
-          if (existing.tier !== newTier) {
-            existing.lights = computeLights(addr, newTier);
-          }
           existing.tier = newTier;
           existing.hue = w.colorHue;
           existing.bp = w.buildProgress;
@@ -547,8 +487,14 @@ export default function TownCanvas() {
 
       const hqImg = getClawdHQImage();
 
-      // Building scale factor for tilemap (buildings are rendered at tile scale)
-      const bldScale = 0.8; // scale buildings relative to tiles
+      // 3x3 tile bounding box for buildings
+      const maxBoxW = TILE_W * 3;  // max width in pixels (96)
+      const maxBoxH = TILE_W * 3;  // max height in pixels (96)
+
+      // Tier controls how much of the 3x3 box is filled (40%-100%)
+      const TIER_FILL: Record<number, number> = {
+        0: 0.3, 1: 0.45, 2: 0.55, 3: 0.7, 4: 0.85, 5: 1.0,
+      };
 
       for (let i = 0; i < sortedBlds.length; i++) {
         const b = sortedBlds[i];
@@ -558,10 +504,11 @@ export default function TownCanvas() {
         if (needAlpha) ctx.globalAlpha = b.bp < 100 ? 0.35 : 0.6;
 
         if (b.addr === CLAWD_HQ_ADDRESS && hqImg) {
-          const baseSize = TILE_W * 3;
+          // Clawd HQ fills the full 3x3 box
           const aspect = hqImg.naturalWidth / hqImg.naturalHeight;
-          const drawW = baseSize * aspect;
-          const drawH = baseSize;
+          let drawW = maxBoxW, drawH = maxBoxH;
+          if (aspect > 1) { drawH = maxBoxW / aspect; }
+          else { drawW = maxBoxH * aspect; }
           ctx.drawImage(hqImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
         } else if (b.tier === 0) {
           ctx.fillStyle = hsl(b.hue, 70, 50, 0.3);
@@ -571,10 +518,19 @@ export default function TownCanvas() {
         } else {
           const aiImg = getAIImage(b.addr, b.customImageUrl);
           if (aiImg) {
-            const baseSize = TILE_W * (TIER_SCALE[b.tier] ?? 0.5) * 3 * bldScale;
+            const fill = TIER_FILL[b.tier] ?? 0.5;
+            const boxW = maxBoxW * fill;
+            const boxH = maxBoxH * fill;
             const aspect = aiImg.naturalWidth / aiImg.naturalHeight;
-            const drawW = baseSize * aspect;
-            const drawH = baseSize;
+            let drawW: number, drawH: number;
+            // Fit image within the tier's box while preserving aspect ratio
+            if (aspect > boxW / boxH) {
+              drawW = boxW;
+              drawH = boxW / aspect;
+            } else {
+              drawH = boxH;
+              drawW = boxH * aspect;
+            }
             ctx.drawImage(aiImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
           }
           // No fallback — buildings without AI images are simply not rendered

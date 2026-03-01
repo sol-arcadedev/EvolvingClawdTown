@@ -174,8 +174,8 @@ async function validateImageTransparency(imageBuffer: Buffer): Promise<{ pass: b
 }
 
 // Imagen 3 prompt style (no LoRA triggers or negative prompts needed)
-const IMAGEN_STYLE_SUFFIX = 'isometric pixel art, 16-bit retro game sprite, clean flat colors with bold dark outlines, single isolated building, 45-degree top-down 3/4 view, fixed camera angle, consistent perspective, pixel art style matching classic SimCity or RollerCoaster Tycoon, building fills 70% of frame, centered in image, pure white background, no ground, no grass, no platform, no base, no floor, no terrain, no environment, no trees, no people, no text, no shadow on ground, no anti-aliasing, crisp pixel edges';
-const IMAGEN_RETRY_BOOST = ', completely isolated floating pixel art building with absolutely no ground or grass beneath it, nothing else in the image, building hovering in pure white empty space, exact 45-degree isometric angle, retro 16-bit game sprite style';
+const IMAGEN_STYLE_SUFFIX = 'isometric pixel art game sprite, 16-bit retro style like SimCity 2000 or Age of Empires, clean flat colors, dark outlines, viewed from exactly 45-degree top-down 3/4 isometric angle showing front and right side of building, single isolated building centered in frame, square image, building occupies center 70% of image, pure white background, no ground plane, no grass, no platform, no base, no terrain, no environment, no trees, no people, no text, no shadows on ground';
+const IMAGEN_RETRY_BOOST = ', completely isolated floating pixel art building, nothing else in the image, pure white empty background, exact 45-degree isometric top-down view showing two faces of the building';
 
 const MAX_IMAGE_ATTEMPTS = 3;
 const RETRY_PROMPT_BOOST = ', completely isolated floating building, absolutely nothing else in the image';
