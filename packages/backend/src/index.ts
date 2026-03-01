@@ -25,6 +25,7 @@ import {
   createTownSnapshot, TownState, DISTRICT_NAMES, computeTags, computeStats,
   getAllArchetypes, Plot,
 } from './town-sim/index';
+import { planBuildingPlacement, executePlacementPlan } from './ai/town-planner';
 
 interface HeliusTokenAccount {
   address: string;
@@ -118,8 +119,20 @@ async function seedHolders(db: DB, force = false) {
     // Find plot on tilemap if available, fallback to old spiral
     let plotX = 0, plotY = 0;
     if (townState) {
-      const tmPlot = findPlotForHolder(townState, tier);
-      if (tmPlot) {
+      let tmPlot = findPlotForHolder(townState, tier);
+
+      // If no plots available, use town planner to expand
+      if (!tmPlot) {
+        const plan = planBuildingPlacement(townState, tier);
+        if (plan) {
+          const planResult = executePlacementPlan(townState, plan);
+          if (planResult.success && planResult.plotId) {
+            tmPlot = townState.plots.get(planResult.plotId) || null;
+          }
+        }
+      }
+
+      if (tmPlot && !tmPlot.occupied) {
         plotX = tmPlot.originX;
         plotY = tmPlot.originY;
         const archetype = getArchetypeForTier(tier);
@@ -129,6 +142,9 @@ async function seedHolders(db: DB, force = false) {
           archetypeId: archetype.id,
           ownerAddress,
         });
+      } else if (tmPlot) {
+        plotX = tmPlot.originX;
+        plotY = tmPlot.originY;
       } else {
         const fallback = await db.getNextPlotForTier(tier);
         plotX = fallback.x;
@@ -153,22 +169,35 @@ async function seedClawdHQ(db: DB) {
   const existing = await db.getWallet(CLAWD_HQ_ADDRESS);
   if (existing) return;
 
-  // Find best civic plot near center for Clawd HQ on the tilemap
-  let plotX = 0, plotY = 0;
+  // The castle is already placed at center by initializeSmallTown()
+  // Just find where it is
+  let plotX = Math.floor(256 / 2), plotY = Math.floor(256 / 2);
   if (townState) {
-    const hqPlot = findPlotForHolder(townState, 5);
-    if (hqPlot) {
-      plotX = hqPlot.originX;
-      plotY = hqPlot.originY;
-      // Place building on tilemap
-      applyAction(townState, {
-        type: 'PLACE_BUILDING_ON_PLOT',
-        plotId: hqPlot.id,
-        archetypeId: 'holder_tier5',
-        ownerAddress: CLAWD_HQ_ADDRESS,
-        buildingName: 'Clawd Architect HQ',
-      });
-      log.info(`Clawd HQ placed on tilemap at plot ${hqPlot.id} (${plotX}, ${plotY})`);
+    // Look for the castle plot at center
+    const cx = Math.floor(townState.map.width / 2);
+    const cy = Math.floor(townState.map.height / 2);
+    const castlePlot = townState.plots.get(`p_${cx}_${cy}`);
+    if (castlePlot) {
+      plotX = castlePlot.originX;
+      plotY = castlePlot.originY;
+      log.info(`Clawd HQ at castle plot (${plotX}, ${plotY})`);
+    } else {
+      // Fallback: find any tier-5 plot
+      const hqPlot = findPlotForHolder(townState, 5);
+      if (hqPlot) {
+        plotX = hqPlot.originX;
+        plotY = hqPlot.originY;
+        if (!hqPlot.occupied) {
+          applyAction(townState, {
+            type: 'PLACE_BUILDING_ON_PLOT',
+            plotId: hqPlot.id,
+            archetypeId: 'holder_tier5',
+            ownerAddress: CLAWD_HQ_ADDRESS,
+            buildingName: 'Clawd Architect HQ',
+          });
+        }
+        log.info(`Clawd HQ placed on tilemap at plot ${hqPlot.id} (${plotX}, ${plotY})`);
+      }
     }
   }
 
@@ -205,23 +234,44 @@ async function migrateWalletsToTilemap(db: DB) {
 
   let migrated = 0;
   for (const w of sorted) {
-    const plot = findPlotForHolder(townState, w.house_tier);
+    // Try existing plots first
+    let plot = findPlotForHolder(townState, w.house_tier);
+
+    // If no plots available, use town planner to expand and create one
+    if (!plot) {
+      const plan = planBuildingPlacement(townState, w.house_tier);
+      if (plan) {
+        const planResult = executePlacementPlan(townState, plan);
+        if (planResult.success && planResult.plotId) {
+          plot = townState.plots.get(planResult.plotId) || null;
+        }
+      }
+    }
+
     if (!plot) {
       log.warn(`No tilemap plot available for ${w.address.slice(0, 8)}... (tier ${w.house_tier})`);
       continue;
     }
 
-    const archetype = getArchetypeForTier(w.house_tier);
-    applyAction(townState, {
-      type: 'PLACE_BUILDING_ON_PLOT',
-      plotId: plot.id,
-      archetypeId: archetype.id,
-      ownerAddress: w.address,
-      buildingName: w.building_name || undefined,
-    });
+    if (!plot.occupied) {
+      const archetype = getArchetypeForTier(w.house_tier);
+      applyAction(townState, {
+        type: 'PLACE_BUILDING_ON_PLOT',
+        plotId: plot.id,
+        archetypeId: archetype.id,
+        ownerAddress: w.address,
+        buildingName: w.building_name || undefined,
+      });
+    }
 
     await db.updateWallet(w.address, { plot_x: plot.originX, plot_y: plot.originY } as any);
     migrated++;
+  }
+
+  // Save tilemap after migration since we likely expanded it
+  if (migrated > 0) {
+    await db.saveTilemap(townState);
+    log.info('Tilemap saved after migration');
   }
 
   log.info(`Migration complete — ${migrated} wallets moved to tilemap plots`);
