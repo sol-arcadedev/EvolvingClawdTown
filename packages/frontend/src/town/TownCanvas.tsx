@@ -567,6 +567,41 @@ function resetParticle(p: Particle) {
   p.maxLife = 300 + Math.random() * 500;
 }
 
+// ── SMOKE PARTICLES (for burning houses) ──
+interface SmokeParticle {
+  x: number; y: number;
+  vx: number; vy: number;
+  size: number; alpha: number;
+  life: number; maxLife: number;
+}
+
+const smokeParticles = new Map<string, SmokeParticle[]>();
+const SMOKE_PER_HOUSE = 8;
+
+function spawnSmokeParticle(): SmokeParticle {
+  return {
+    x: (Math.random() - 0.5) * 12,
+    y: 0,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -(0.5 + Math.random() * 0.5),
+    size: 3 + Math.random() * 3,
+    alpha: 0.4 + Math.random() * 0.2,
+    life: Math.floor(Math.random() * 120), // stagger initial spawns
+    maxLife: 120 + Math.floor(Math.random() * 80),
+  };
+}
+
+function resetSmokeParticle(p: SmokeParticle) {
+  p.x = (Math.random() - 0.5) * 12;
+  p.y = 0;
+  p.vx = (Math.random() - 0.5) * 0.3;
+  p.vy = -(0.5 + Math.random() * 0.5);
+  p.size = 3 + Math.random() * 3;
+  p.alpha = 0.4 + Math.random() * 0.2;
+  p.life = 0;
+  p.maxLife = 120 + Math.floor(Math.random() * 80);
+}
+
 
 // ── CLAWD HQ STATIC IMAGE ──
 let clawdHQImage: HTMLImageElement | null = null;
@@ -1398,6 +1433,12 @@ export default function TownCanvas() {
       // ── 2.3. FIRE ANIMATION (houses currently burning) ──
       if (showAnim && decodedTiles && mapW > 0) {
         const burningHouses = getBurningHouses();
+        // Cleanup smoke for houses no longer burning
+        for (const key of smokeParticles.keys()) {
+          if (!Array.from(burningHouses.values()).some(e => `${e.plotX},${e.plotY}` === key)) {
+            smokeParticles.delete(key);
+          }
+        }
         if (burningHouses.size > 0) {
           const fireSprite1 = burnSpriteCache.get('fire-1');
           const fireSprite2 = burnSpriteCache.get('fire-2');
@@ -1418,6 +1459,37 @@ export default function TownCanvas() {
               ctx.drawImage(fireSprite, sx - s / 2, sy - s + 4, s, s);
               ctx.globalAlpha = 1;
               ctx.restore();
+
+              // ── Rising smoke particles ──
+              const smokeKey = `${entry.plotX},${entry.plotY}`;
+              let particles = smokeParticles.get(smokeKey);
+              if (!particles) {
+                particles = [];
+                for (let i = 0; i < SMOKE_PER_HOUSE; i++) {
+                  particles.push(spawnSmokeParticle());
+                }
+                smokeParticles.set(smokeKey, particles);
+              }
+
+              for (const p of particles) {
+                p.life++;
+                if (p.life >= p.maxLife) {
+                  resetSmokeParticle(p);
+                  continue;
+                }
+                p.x += p.vx;
+                p.y += p.vy;
+                p.size += 0.08; // smoke expands as it rises
+
+                const t = p.life / p.maxLife; // 0→1
+                const fadeAlpha = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8; // fade in then out
+                const gray = Math.floor(100 + t * 80); // dark→light gray
+
+                ctx.beginPath();
+                ctx.arc(sx + p.x, sy - s * 0.6 + p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${gray},${gray},${gray},${fadeAlpha * p.alpha})`;
+                ctx.fill();
+              }
             }
           }
         }
