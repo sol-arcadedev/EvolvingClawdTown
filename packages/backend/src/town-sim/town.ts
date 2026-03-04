@@ -263,7 +263,7 @@ function placeForestRing(map: TownMap, rng: PRNG): void {
   const cx = Math.floor(map.width / 2);
   const cy = Math.floor(map.height / 2);
   const INNER_R = 5;  // just outside the moat
-  const OUTER_R = 8;  // compact ring, before civic zone roads
+  const OUTER_R = 11; // thick ring, clearly separates castle from town
 
   for (let y = cy - OUTER_R; y <= cy + OUTER_R; y++) {
     for (let x = cx - OUTER_R; x <= cx + OUTER_R; x++) {
@@ -277,8 +277,8 @@ function placeForestRing(map: TownMap, rng: PRNG): void {
       if (t.road > 0) continue;
       if (t.buildingId > 0) continue;
 
-      // ~60% density for a dense forest feel, mix of trees and bushes
-      if (rng.next() < 0.6) {
+      // ~90% density for a thick, prominent forest ring
+      if (rng.next() < 0.9) {
         t.clusterId = rng.next() < 0.85 ? 1 : 2; // 85% tree, 15% bush
       }
     }
@@ -302,7 +302,7 @@ function scatterDecorations(map: TownMap, rng: PRNG): void {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       // Skip castle area and forest ring (already decorated)
-      if (dist <= 8) continue;
+      if (dist <= 11) continue;
 
       // ~25% chance to place a decoration on open land
       if (rng.next() > 0.25) continue;
