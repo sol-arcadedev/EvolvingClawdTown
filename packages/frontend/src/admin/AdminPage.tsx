@@ -14,8 +14,8 @@ interface Status {
 }
 
 export default function AdminPage() {
-  const [password, setPassword] = useState('');
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [password, setPassword] = useState(() => sessionStorage.getItem('admin_pw') || '');
+  const [loggedIn, setLoggedIn] = useState(() => !!sessionStorage.getItem('admin_pw'));
   const [status, setStatus] = useState<Status | null>(null);
   const [newMint, setNewMint] = useState('');
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -34,6 +34,11 @@ export default function AdminPage() {
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/status`, { headers: headers() });
+      if (res.status === 401) {
+        sessionStorage.removeItem('admin_pw');
+        setLoggedIn(false);
+        return;
+      }
       if (!res.ok) throw new Error(`${res.status}`);
       setStatus(await res.json());
     } catch {
@@ -49,6 +54,7 @@ export default function AdminPage() {
         return;
       }
       if (!res.ok) throw new Error(`${res.status}`);
+      sessionStorage.setItem('admin_pw', password);
       setLoggedIn(true);
       setStatus(await res.json());
     } catch (err: any) {
