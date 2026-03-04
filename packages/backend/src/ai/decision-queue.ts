@@ -43,6 +43,32 @@ export interface DecisionResult {
 type DecisionCallback = (result: DecisionResult) => void;
 type ProgressCallback = (line: string) => void;
 
+/** Simple async mutex for serializing town state mutations */
+class AsyncMutex {
+  private locked = false;
+  private waiters: (() => void)[] = [];
+
+  async acquire(): Promise<void> {
+    while (this.locked) {
+      await new Promise<void>(resolve => this.waiters.push(resolve));
+    }
+    this.locked = true;
+  }
+
+  release(): void {
+    this.locked = false;
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+}
+
+// How many decisions to process concurrently (AI calls in parallel,
+// town placement serialized after). Higher = faster throughput during surges.
+const BATCH_SIZE = parseInt(process.env.DECISION_BATCH_SIZE || '5');
+
+// When the queue depth exceeds this, skip image generation to speed up processing.
+const IMAGE_DEFER_THRESHOLD = parseInt(process.env.IMAGE_DEFER_THRESHOLD || '10');
+
 export class DecisionQueue {
   private queue: DecisionRequest[] = [];
   private processing = false;
@@ -52,6 +78,10 @@ export class DecisionQueue {
   private onTilemapSave: (() => void) | null = null;
   private db: DB;
   private townState: TownState | null = null;
+  /** Addresses that had image gen deferred during surge — will be retried later */
+  private deferredImageAddresses: string[] = [];
+  /** Mutex for serializing town state mutations (placement) while AI calls run in parallel */
+  private placementMutex = new AsyncMutex();
 
   constructor(db: DB) {
     this.db = db;
@@ -201,15 +231,90 @@ export class DecisionQueue {
     this.processing = true;
 
     while (this.queue.length > 0) {
-      const request = this.queue.shift()!;
-      try {
-        await this.processDecision(request);
-      } catch (err) {
-        log.error(`Decision processing failed for ${request.walletAddress.slice(0, 8)}...:`, err);
+      // Take up to BATCH_SIZE items from the queue
+      const batch = this.queue.splice(0, BATCH_SIZE);
+      if (batch.length > 1) {
+        log.info(`Processing batch of ${batch.length} decisions (${this.queue.length} remaining)`);
+      }
+
+      // Process all items in the batch concurrently
+      const results = await Promise.allSettled(
+        batch.map(request => this.processDecision(request))
+      );
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'rejected') {
+          log.error(`Decision processing failed for ${batch[i].walletAddress.slice(0, 8)}...:`, result.reason);
+        }
       }
     }
 
+    // After queue drains, process deferred images in background
+    if (this.deferredImageAddresses.length > 0) {
+      const deferred = [...this.deferredImageAddresses];
+      this.deferredImageAddresses = [];
+      log.info(`Queue drained — generating ${deferred.length} deferred building images...`);
+      this.processDeferredImages(deferred);
+    }
+
     this.processing = false;
+  }
+
+  /** Generate images for buildings that were deferred during surge */
+  private async processDeferredImages(addresses: string[]): Promise<void> {
+    for (const address of addresses) {
+      if (this.queue.length > 0) {
+        // New items arrived — re-defer remaining and let processNext handle them
+        this.deferredImageAddresses.push(...addresses.slice(addresses.indexOf(address)));
+        return;
+      }
+      try {
+        const wallet = await this.db.getWallet(address);
+        if (!wallet || !wallet.image_prompt) continue;
+        if (wallet.custom_image_url) continue; // already has an image
+
+        this.pushProgress(`> Rendering deferred image for ${address.slice(0, 8)}...`);
+        const imageUrl = await generateBuildingImage(wallet.image_prompt, address);
+        if (imageUrl) {
+          await this.db.updateWalletAI(address, {
+            custom_image_url: imageUrl,
+            image_generated_at: new Date(),
+          });
+          if (this.onDecision) {
+            // Notify frontend of the new image
+            this.onDecision({
+              walletAddress: address,
+              eventType: 'buy',
+              decision: {
+                building_name: wallet.building_name || '',
+                architectural_style: wallet.architectural_style || '',
+                clawd_comment: '',
+                image_prompt: wallet.image_prompt,
+                description: '',
+                evolution_hint: '',
+              },
+              imageUrl,
+              holderProfile: {
+                walletAddress: address.slice(0, 4) + '...' + address.slice(-4),
+                tier: wallet.house_tier,
+                supplyPercent: 0,
+                eventType: 'buy',
+                tradingPersonality: '',
+                behaviorPattern: '',
+                behaviorTheme: '',
+                tradeStats: { buys: 0, sells: 0, volume: 0 },
+                isNewHolder: false,
+                existingBuildingName: wallet.building_name,
+              },
+            });
+          }
+          log.info(`Deferred image generated for ${address.slice(0, 8)}...`);
+        }
+      } catch (err) {
+        log.error(`Deferred image generation failed for ${address.slice(0, 8)}...:`, err);
+      }
+    }
   }
 
   private async processDecision(request: DecisionRequest): Promise<void> {
@@ -298,49 +403,57 @@ export class DecisionQueue {
     // Stage 5: Verdict
     this.pushProgress(`> Verdict: "${decision.building_name}" (${decision.architectural_style})`);
 
-    // Generate image (if SD is available)
+    // Generate image — skip during surge to keep throughput high
     let imageUrl: string | null = null;
-    if (isImageGenEnabled()) {
-      // Stage 6: Image generation
+    const surgeMode = this.queue.length >= IMAGE_DEFER_THRESHOLD;
+    if (isImageGenEnabled() && !surgeMode) {
       this.pushProgress(`> Rendering building image...`);
       imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
+    } else if (isImageGenEnabled() && surgeMode) {
+      this.pushProgress(`> Image deferred (queue: ${this.queue.length}) — will render when queue drains`);
+      this.deferredImageAddresses.push(walletAddress);
     }
 
-    // Stage 6: Town planning — place building on tilemap
+    // Town planning — place building on tilemap (serialized via mutex)
     let plotX = walletRow.plot_x;
     let plotY = walletRow.plot_y;
 
     if (this.townState) {
-      this.pushProgress(`> Planning building placement...`);
-      const plan = planBuildingPlacement(this.townState, walletRow.house_tier);
+      await this.placementMutex.acquire();
+      try {
+        this.pushProgress(`> Planning building placement...`);
+        const plan = planBuildingPlacement(this.townState, walletRow.house_tier);
 
-      if (plan) {
-        const planResult = executePlacementPlan(this.townState, plan);
-        if (planResult.success && planResult.plotId) {
-          const plot = this.townState.plots.get(planResult.plotId);
-          if (plot && !plot.occupied) {
-            const archetype = getArchetypeForTier(walletRow.house_tier);
-            const buildResult = applyAction(this.townState, {
-              type: 'PLACE_BUILDING_ON_PLOT',
-              plotId: planResult.plotId,
-              archetypeId: archetype.id,
-              ownerAddress: walletAddress,
-              buildingName: decision.building_name,
-            });
-            if (buildResult.success) {
-              plotX = plot.originX;
-              plotY = plot.originY;
-              this.pushProgress(`> Building placed at (${plotX}, ${plotY})`);
+        if (plan) {
+          const planResult = executePlacementPlan(this.townState, plan);
+          if (planResult.success && planResult.plotId) {
+            const plot = this.townState.plots.get(planResult.plotId);
+            if (plot && !plot.occupied) {
+              const archetype = getArchetypeForTier(walletRow.house_tier);
+              const buildResult = applyAction(this.townState, {
+                type: 'PLACE_BUILDING_ON_PLOT',
+                plotId: planResult.plotId,
+                archetypeId: archetype.id,
+                ownerAddress: walletAddress,
+                buildingName: decision.building_name,
+              });
+              if (buildResult.success) {
+                plotX = plot.originX;
+                plotY = plot.originY;
+                this.pushProgress(`> Building placed at (${plotX}, ${plotY})`);
 
-              // Update wallet plot coords
-              await this.db.updateWallet(walletAddress, { plot_x: plotX, plot_y: plotY } as any);
+                // Update wallet plot coords
+                await this.db.updateWallet(walletAddress, { plot_x: plotX, plot_y: plotY } as any);
 
-              // Schedule tilemap save and broadcast update
-              if (this.onTilemapSave) this.onTilemapSave();
-              if (this.onTilemapUpdate) this.onTilemapUpdate();
+                // Schedule tilemap save and broadcast update
+                if (this.onTilemapSave) this.onTilemapSave();
+                if (this.onTilemapUpdate) this.onTilemapUpdate();
+              }
             }
           }
         }
+      } finally {
+        this.placementMutex.release();
       }
     }
 

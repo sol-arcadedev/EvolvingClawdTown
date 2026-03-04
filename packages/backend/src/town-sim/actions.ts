@@ -237,6 +237,38 @@ function applyExpandTown(
 
   if (expanded === 0) return { success: false, error: 'No valid tiles to expand into' };
 
+  // Auto-generate plots on newly expanded land (3x3 plots with 1-tile gap)
+  const plotStep = 4; // 3 tiles for plot + 1 tile gap
+  for (let dy = -radius; dy <= radius - 2; dy += plotStep) {
+    for (let dx = -radius; dx <= radius - 2; dx += plotStep) {
+      const px = center.x + dx;
+      const py = center.y + dy;
+      const plotId = `p_${px}_${py}`;
+      if (state.plots.has(plotId)) continue;
+      if (!inBounds(map, px, py) || !inBounds(map, px + 2, py + 2)) continue;
+      // Check all 9 tiles are land and have no buildings
+      let allLand = true;
+      for (let iy = 0; iy < 3 && allLand; iy++) {
+        for (let ix = 0; ix < 3 && allLand; ix++) {
+          const ti = (py + iy) * map.width + (px + ix);
+          const t = map.tiles[ti];
+          if (t.terrain === TERRAIN_WATER || t.road > 0 || t.buildingId > 0) allLand = false;
+        }
+      }
+      if (!allLand) continue;
+      state.plots.set(plotId, {
+        id: plotId,
+        originX: px,
+        originY: py,
+        width: 3,
+        height: 3,
+        district: distIdx,
+        occupied: false,
+        buildingId: 0,
+      });
+    }
+  }
+
   computeTags(map);
   state.stats = computeStats(state);
   return { success: true };
@@ -268,9 +300,17 @@ function applyCreatePlot(
     }
   }
 
-  // Check it doesn't overlap existing plots
+  // Check it doesn't overlap existing plots (area overlap, not just same origin)
   const plotId = `p_${origin.x}_${origin.y}`;
   if (plots.has(plotId)) return { success: false, error: 'Plot already exists at this location' };
+
+  for (const existing of plots.values()) {
+    const overlapX = origin.x < existing.originX + existing.width && origin.x + width > existing.originX;
+    const overlapY = origin.y < existing.originY + existing.height && origin.y + height > existing.originY;
+    if (overlapX && overlapY) {
+      return { success: false, error: 'Plot overlaps existing plot' };
+    }
+  }
 
   const plot: Plot = {
     id: plotId,
@@ -295,6 +335,8 @@ const DECORATION_MAP: Record<string, number> = {
   rock: 3,
   fountain: 4,
   bench: 5,
+  fence: 6,
+  hedge: 7,
 };
 
 function applyPlaceDecoration(

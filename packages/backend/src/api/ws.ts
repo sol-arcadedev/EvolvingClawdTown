@@ -20,12 +20,17 @@ interface ExtWebSocket extends WebSocket {
   isAlive: boolean;
 }
 
+const TILEMAP_BROADCAST_DEBOUNCE = parseInt(process.env.TILEMAP_BROADCAST_DEBOUNCE_MS || '2000');
+
 export class TownWebSocketServer {
   private wss: WebSocketServer;
   private redisSub: Redis | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private consoleLines: string[] = [];
   private getTownState: () => TownState | null;
+  private reseedAt = 0; // timestamp (ms) of last reseed
+  private tilemapBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  private tilemapBroadcastPending = false;
 
   constructor(
     server: HttpServer,
@@ -160,6 +165,8 @@ export class TownWebSocketServer {
             decorations: townSnap.decorations,
             seed: townSnap.seed,
             tilemapSize: townSnap.tilemap.length,
+            reseedAt: this.reseedAt,
+            serverTime: Date.now(),
           });
           extWs.send(townMsg);
           extWs.send(tilemapGz);
@@ -238,8 +245,34 @@ export class TownWebSocketServer {
     this.broadcast({ type: 'console_line', line });
   }
 
-  /** Re-send full gzipped tilemap to all connected clients */
+  /**
+   * Re-send full gzipped tilemap to all connected clients.
+   * Debounced: multiple calls within TILEMAP_BROADCAST_DEBOUNCE_MS (default 2s)
+   * are coalesced into a single broadcast, preventing network flooding during
+   * rapid building placement (e.g. surge from 261 → 1500 holders).
+   */
   broadcastTilemapUpdate(): void {
+    this.tilemapBroadcastPending = true;
+    if (this.tilemapBroadcastTimer) return; // already scheduled
+
+    this.tilemapBroadcastTimer = setTimeout(() => {
+      this.tilemapBroadcastTimer = null;
+      this.tilemapBroadcastPending = false;
+      this._doBroadcastTilemap();
+    }, TILEMAP_BROADCAST_DEBOUNCE);
+  }
+
+  /** Force an immediate tilemap broadcast (used on reseed, bypasses debounce) */
+  broadcastTilemapImmediate(): void {
+    if (this.tilemapBroadcastTimer) {
+      clearTimeout(this.tilemapBroadcastTimer);
+      this.tilemapBroadcastTimer = null;
+    }
+    this.tilemapBroadcastPending = false;
+    this._doBroadcastTilemap();
+  }
+
+  private _doBroadcastTilemap(): void {
     const state = this.getTownState();
     if (!state) return;
 
@@ -253,6 +286,8 @@ export class TownWebSocketServer {
       decorations: townSnap.decorations,
       seed: townSnap.seed,
       tilemapSize: townSnap.tilemap.length,
+      reseedAt: this.reseedAt,
+      serverTime: Date.now(),
     });
 
     this.wss.clients.forEach((client) => {
@@ -263,6 +298,11 @@ export class TownWebSocketServer {
     });
 
     log.debug(`Broadcast tilemap update: ${tilemapGz.length} bytes to ${this.wss.clients.size} clients`);
+  }
+
+  /** Mark that a reseed just happened (for staged reveal sync) */
+  markReseed(): void {
+    this.reseedAt = Date.now();
   }
 
   /** Terminate all connected clients so they reconnect fresh */
@@ -280,6 +320,9 @@ export class TownWebSocketServer {
   async close(): Promise<void> {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
+    }
+    if (this.tilemapBroadcastTimer) {
+      clearTimeout(this.tilemapBroadcastTimer);
     }
     this.redisSub?.disconnect();
     this.wss.close();

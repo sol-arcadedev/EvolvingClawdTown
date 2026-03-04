@@ -72,16 +72,30 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
   // Find the least-developed angle and the current town radius
   const { angle, radius } = findGapDirection(state);
 
-  // Place expansion center at the town edge in the gap direction
-  // This fills in gaps between existing spokes for a rounder shape
+  // Walk outward from center in the chosen direction until we hit water,
+  // then place expansion center a few tiles into the water.
+  // This guarantees we always expand into water, no matter how far the town has grown.
   const dirX = Math.cos(angle);
   const dirY = Math.sin(angle);
+
+  let waterEdgeDist = radius;
+  for (let d = 5; d < 120; d++) {
+    const tx = Math.round(cx + dirX * d);
+    const ty = Math.round(cy + dirY * d);
+    if (!inBounds(map, tx, ty)) { waterEdgeDist = d - 1; break; }
+    const t = map.tiles[ty * map.width + tx];
+    if (t.terrain === TERRAIN_WATER) { waterEdgeDist = d; break; }
+  }
+
+  // Place expansion center at the water edge (not deep into ocean)
+  // so the new land patch stays connected to the existing island
+  const expDist = waterEdgeDist + 1;
   const expCenter: TileCoord = {
-    x: Math.round(cx + dirX * radius),
-    y: Math.round(cy + dirY * radius),
+    x: Math.round(cx + dirX * expDist),
+    y: Math.round(cy + dirY * expDist),
   };
 
-  // Clamp to bounds
+  // Clamp to bounds (leave margin for expansion radius)
   expCenter.x = Math.max(10, Math.min(map.width - 10, expCenter.x));
   expCenter.y = Math.max(10, Math.min(map.height - 10, expCenter.y));
 
@@ -101,12 +115,12 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
     y: Math.round(expCenter.y + perpY * 2),
   };
 
-  // Determine plot size based on tier
-  const plotW = tier >= 4 ? 3 : tier >= 2 ? 2 : 1;
-  const plotH = tier >= 3 ? 2 : 1;
+  // All plots are 3x3 — building renders on center tile
+  const plotW = 3;
+  const plotH = 3;
 
   const plan: PlacementPlan = {
-    expansion: { center: expCenter, radius: 8, district },
+    expansion: { center: expCenter, radius: 6, district },
     plot: { origin: plotOrigin, width: plotW, height: plotH, district },
   };
 
@@ -118,7 +132,7 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
     };
   }
 
-  // Add decorations near the new building
+  // Add 2-3 decorations near the new building
   plan.decorations = [
     {
       position: {
@@ -126,6 +140,20 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
         y: plotOrigin.y,
       },
       type: 'tree',
+    },
+    {
+      position: {
+        x: plotOrigin.x,
+        y: plotOrigin.y + plotH + 1,
+      },
+      type: 'tree',
+    },
+    {
+      position: {
+        x: plotOrigin.x + plotW + 1,
+        y: plotOrigin.y + plotH,
+      },
+      type: Math.random() < 0.5 ? 'bush' : 'tree',
     },
   ];
 
@@ -158,12 +186,14 @@ function findGapDirection(state: TownState): { angle: number; radius: number } {
     }
   }
 
-  // Find the sector with least land (biggest gap)
-  let minLand = Infinity;
+  // Find the sector with least land (biggest gap), with randomness to spread growth
+  // Add random noise so consecutive calls don't always pick the same sector
+  let minScore = Infinity;
   let gapSector = 0;
   for (let s = 0; s < SECTORS; s++) {
-    if (sectorLand[s] < minLand) {
-      minLand = sectorLand[s];
+    const score = sectorLand[s] + Math.random() * (sectorLand[s] * 0.5 + 10);
+    if (score < minScore) {
+      minScore = score;
       gapSector = s;
     }
   }
@@ -216,18 +246,31 @@ function findNearestRoad(state: TownState, pos: TileCoord): TileCoord | null {
 function planDecorations(state: TownState, plot: Plot): Array<{ position: TileCoord; type: string }> | undefined {
   const { map } = state;
   const decorations: Array<{ position: TileCoord; type: string }> = [];
-  const types = ['tree', 'bush', 'rock'];
 
-  // Try to place 1-2 decorations near the plot
+  // Weighted selection: trees 40%, bushes 20%, fence 10%, hedge 10%, misc 20%
+  function pickDecorationType(): string {
+    const r = Math.random();
+    if (r < 0.40) return 'tree';
+    if (r < 0.60) return 'bush';
+    if (r < 0.70) return 'fence';
+    if (r < 0.80) return 'hedge';
+    const misc = ['rock', 'fountain', 'bench'];
+    return misc[Math.floor(Math.random() * misc.length)];
+  }
+
+  // Try to place 2-3 decorations near the plot
+  const targetCount = 2 + Math.floor(Math.random() * 2); // 2-3
   const offsets: [number, number][] = [
     [plot.width + 1, 0],
     [0, plot.height + 1],
     [-1, 0],
     [0, -1],
+    [plot.width + 1, plot.height],
+    [plot.width, plot.height + 1],
   ];
 
   for (const [ox, oy] of offsets) {
-    if (decorations.length >= 2) break;
+    if (decorations.length >= targetCount) break;
     const x = plot.originX + ox;
     const y = plot.originY + oy;
     if (!inBounds(map, x, y)) continue;
@@ -240,7 +283,7 @@ function planDecorations(state: TownState, plot: Plot): Array<{ position: TileCo
 
     decorations.push({
       position: { x, y },
-      type: types[Math.floor(Math.random() * types.length)],
+      type: pickDecorationType(),
     });
   }
 
@@ -285,12 +328,12 @@ export function executePlacementPlan(
   let plotCreated = state.plots.has(plotId);
 
   if (!plotCreated) {
-    // Try the planned origin first, then spiral outward to find a clear spot
+    // Try the planned origin first, then spiral outward in 3-tile steps (plot size)
     const offsets: [number, number][] = [[0,0]];
-    for (let r = 1; r <= 6; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.abs(dx) === r || Math.abs(dy) === r) {
+    for (let r = 3; r <= 18; r += 3) {
+      for (let dy = -r; dy <= r; dy += 3) {
+        for (let dx = -r; dx <= r; dx += 3) {
+          if (Math.abs(dx) >= r || Math.abs(dy) >= r) {
             offsets.push([dx, dy]);
           }
         }

@@ -34,6 +34,8 @@ const DECO_SPRITE_KEYS: Record<number, string[]> = {
   3: ['rock-1', 'rock-2'],                                   // rock
   4: ['fountain-1'],                                          // fountain
   5: ['bench-1'],                                             // bench
+  6: ['fence-1', 'fence-2'],                                  // fence
+  7: ['hedge-1', 'hedge-2'],                                  // hedge
 };
 const DECO_SPRITE_SIZE = 28;
 const decoSpriteCache = new Map<string, HTMLImageElement | null>();
@@ -284,7 +286,7 @@ function drawConstructionAnim(
   }
 
   // Dust / sparkle particles around the construction site
-  if (camScale < 0.4) return; // skip particles when zoomed out
+  if (camScale < 0.15) return; // skip particles when very zoomed out
   const particleCount = Math.min(2, Math.ceil((1 - progress) * 4) + 1); // capped at 2
   const t = frame * 0.05;
   for (let i = 0; i < particleCount; i++) {
@@ -408,9 +410,15 @@ function makeBld(addr: string, w: WalletState, tiles: DecodedTile[] | null, mapW
   };
 }
 
-function shouldInclude(_addr: string, w: WalletState): boolean {
+function shouldInclude(_addr: string, w: WalletState, tiles: DecodedTile[] | null, mapW: number): boolean {
   if (_addr === CLAWD_HQ_ADDRESS) return true;
   if (w.tokenBalance === '0' || Number(w.tokenBalance) <= 0) return false;
+  // Skip buildings placed on water tiles (e.g. from failed town expansion)
+  if (tiles && mapW > 0) {
+    const cx = w.plotX + 1, cy = w.plotY + 1;
+    const tile = tiles[cy * mapW + cx];
+    if (tile && tile.terrain === 0) return false; // terrain 0 = water
+  }
   return true;
 }
 
@@ -456,12 +464,8 @@ export default function TownCanvas() {
     const decoChunkIndex = new Map<string, Array<{x: number; y: number; type: number}>>();
     let lastDecoLength = -1;
 
-    // Offscreen water overlay cache
-    let waterCvs: HTMLCanvasElement | null = null;
-    let waterCtx2: CanvasRenderingContext2D | null = null;
-    let waterCamX = NaN, waterCamY = NaN, waterCamScale = NaN;
-    let waterVpW = 0, waterVpH = 0;
-    let waterLastFrame = -999;
+    // Water animation throttle (update wave time every 6 frames)
+    let waterAnimT = 0;
 
     // Hover
     let hoveredAddr: string | null = null;
@@ -594,179 +598,7 @@ export default function TownCanvas() {
 
     let frame = 0;
 
-    // ── STAGED REVEAL ──
-    // Tiles, decorations, and buildings appear one by one from center outward.
-    // Works on both first load and reseed.
-    const REVEAL_INTERVAL = 500; // ms between each batch
-    const TILE_BATCH_SIZE = 8;   // tiles per tick
-    const OBJ_BATCH_SIZE = 2;    // objects per tick (strict cap)
-    let revealTimer: ReturnType<typeof setInterval> | null = null;
-    let isStaging = false;
-    let lastStagedSeed = -1;
-
-    // Tile reveal state
-    let newDecodedTiles: DecodedTile[] | null = null;
-    let tileRevealQueue: number[] = [];
-    let pendingTileSet = new Set<number>();
-
-    // Object reveal queue — strictly ordered, released N per tick
-    type ObjQueueItem = { kind: 'deco'; data: { x: number; y: number; type: number } } | { kind: 'bld'; addr: string };
-    let objRevealQueue: ObjQueueItem[] = [];
-    let visibleDecoSet = new Set<string>();
-    let visibleBldSet = new Set<string>();
-
-    function startStagedReveal() {
-      const store = useTownStore.getState();
-
-      // Don't restart staging if we already staged for this seed
-      if (store.townSeed === lastStagedSeed) return;
-
-      // Need both tilemap and wallets ready before starting
-      if (!newDecodedTiles || !decodedTiles) return;
-      if (store.wallets.size === 0 && store.decorations.length === 0) return;
-
-      lastStagedSeed = store.townSeed;
-
-      if (revealTimer) clearInterval(revealTimer);
-      visibleDecoSet.clear();
-      visibleBldSet.clear();
-      pendingTileSet.clear();
-      tileRevealQueue = [];
-      objRevealQueue = [];
-      isStaging = true;
-
-      const mapW = store.mapWidth;
-      const midTX = mapW / 2;
-      const midTY = store.mapHeight / 2;
-
-      // Find tiles that differ (or are new)
-      const changedTiles: Array<{ idx: number; dist: number }> = [];
-      for (let i = 0; i < newDecodedTiles.length; i++) {
-        const oldT = decodedTiles[i];
-        const newT = newDecodedTiles[i];
-        if (!newT) continue;
-        if (!oldT ||
-            oldT.terrain !== newT.terrain || oldT.district !== newT.district ||
-            oldT.road !== newT.road || oldT.hasBuilding !== newT.hasBuilding) {
-          const tx = i % mapW;
-          const ty = Math.floor(i / mapW);
-          changedTiles.push({ idx: i, dist: Math.hypot(tx - midTX, ty - midTY) });
-        }
-      }
-      changedTiles.sort((a, b) => a.dist - b.dist);
-      tileRevealQueue = changedTiles.map(t => t.idx);
-      pendingTileSet = new Set(tileRevealQueue);
-
-      // Build object queue sorted by distance — these are revealed strictly in order
-      const objItems: Array<{ dist: number; item: ObjQueueItem }> = [];
-      for (const d of store.decorations) {
-        objItems.push({ dist: Math.hypot(d.x - midTX, d.y - midTY), item: { kind: 'deco', data: d } });
-      }
-      for (const [addr, w] of store.wallets) {
-        objItems.push({ dist: Math.hypot(w.plotX - midTX, w.plotY - midTY), item: { kind: 'bld', addr } });
-      }
-      objItems.sort((a, b) => a.dist - b.dist);
-      objRevealQueue = objItems.map(o => o.item);
-
-      // Nothing to stage
-      if (tileRevealQueue.length === 0 && objRevealQueue.length === 0) {
-        decodedTiles = newDecodedTiles;
-        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
-        isStaging = false;
-        dirty = true;
-        return;
-      }
-
-      // Fast-forward: skip items that should already be visible based on elapsed time
-      const elapsed = store.reseedElapsedMs;
-      if (elapsed > 0 && elapsed < Infinity) {
-        const ticksElapsed = Math.floor(elapsed / REVEAL_INTERVAL);
-        // Fast-forward tiles
-        const tilesToSkip = Math.min(ticksElapsed * TILE_BATCH_SIZE, tileRevealQueue.length);
-        for (let i = 0; i < tilesToSkip; i++) {
-          const idx = tileRevealQueue.shift()!;
-          pendingTileSet.delete(idx);
-          decodedTiles![idx] = newDecodedTiles![idx];
-        }
-        // Fast-forward objects
-        const objTicksElapsed = Math.max(0, ticksElapsed - Math.ceil((tilesToSkip / TILE_BATCH_SIZE)));
-        const objsToSkip = Math.min(objTicksElapsed * OBJ_BATCH_SIZE, objRevealQueue.length);
-        for (let i = 0; i < objsToSkip; i++) {
-          const item = objRevealQueue.shift()!;
-          if (item.kind === 'deco') visibleDecoSet.add(`${item.data.x},${item.data.y}`);
-          else visibleBldSet.add(item.addr);
-        }
-        if (tilesToSkip > 0) chunkCache.invalidateAll();
-      }
-
-      // If everything was fast-forwarded, done
-      if (tileRevealQueue.length === 0 && objRevealQueue.length === 0) {
-        decodedTiles = newDecodedTiles;
-        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
-        isStaging = false;
-        dirty = true;
-        return;
-      }
-
-      revealTimer = setInterval(() => {
-        let changed = false;
-
-        // Phase 1: Reveal tile batch
-        if (tileRevealQueue.length > 0) {
-          const batch = Math.min(TILE_BATCH_SIZE, tileRevealQueue.length);
-          for (let i = 0; i < batch; i++) {
-            const idx = tileRevealQueue.shift()!;
-            pendingTileSet.delete(idx);
-            decodedTiles![idx] = newDecodedTiles![idx];
-            const tx = idx % mapW;
-            const ty = Math.floor(idx / mapW);
-            chunkCache.invalidateChunk(tx, ty);
-          }
-          changed = true;
-        }
-
-        // Phase 2: Reveal exactly OBJ_BATCH_SIZE objects per tick (strict)
-        // Only reveal if the object's tile is not still pending
-        if (objRevealQueue.length > 0) {
-          let released = 0;
-          const deferred: ObjQueueItem[] = [];
-          for (let i = 0; i < objRevealQueue.length && released < OBJ_BATCH_SIZE; i++) {
-            const item = objRevealQueue[i];
-            let tileIdx = -1;
-            if (item.kind === 'deco') {
-              tileIdx = item.data.y * mapW + item.data.x;
-            } else {
-              const w = store.wallets.get(item.addr);
-              if (w) tileIdx = w.plotY * mapW + w.plotX;
-            }
-            if (tileIdx >= 0 && pendingTileSet.has(tileIdx)) {
-              deferred.push(item);
-            } else {
-              if (item.kind === 'deco') visibleDecoSet.add(`${item.data.x},${item.data.y}`);
-              else visibleBldSet.add(item.addr);
-              released++;
-              changed = true;
-            }
-          }
-          // Keep unreleased items (both deferred and not-yet-scanned)
-          objRevealQueue = [...deferred, ...objRevealQueue.slice(deferred.length + released)];
-        }
-
-        if (changed) dirty = true;
-
-        // Done
-        if (tileRevealQueue.length === 0 && objRevealQueue.length === 0) {
-          if (revealTimer) clearInterval(revealTimer);
-          revealTimer = null;
-          isStaging = false;
-          if (newDecodedTiles) {
-            decodedTiles = newDecodedTiles;
-            chunkCache.invalidateAll();
-          }
-          dirty = true;
-        }
-      }, REVEAL_INTERVAL);
-    }
+    // No staged reveal — all clients see the same complete state immediately
 
     // ── LOCATE HOUSE ──
     useTownStore.getState().setLocateHouse((address: string) => {
@@ -790,38 +622,8 @@ export default function TownCanvas() {
       whales.length = 0;
       whaleSpawnTimer = 0;
 
-      const incoming = decodeTilemap(store.tilemap, store.mapWidth, store.mapHeight);
-
-      // Compute total reveal duration based on estimated items
-      const totalItems = (store.decorations?.length ?? 0) + store.wallets.size;
-      const totalTileChanges = incoming.length; // rough upper bound
-      const totalRevealDuration = (totalTileChanges / TILE_BATCH_SIZE + totalItems / OBJ_BATCH_SIZE) * REVEAL_INTERVAL;
-
-      // If reseed was long ago (reveal is done), show everything immediately
-      if (store.reseedElapsedMs > totalRevealDuration + 5000) {
-        decodedTiles = incoming;
-        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
-        dirty = true;
-        return;
-      }
-
-      // Reseed is recent — set up for staged reveal
-      // Start with empty (water) tiles so the diff covers everything
-      if (!decodedTiles || decodedTiles.length === 0) {
-        const waterTile: DecodedTile = { terrain: 0, district: 0, road: 0, hasBuilding: false, elevation: 0, buildingId: 0 };
-        decodedTiles = incoming.map(() => ({ ...waterTile }));
-        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
-      } else if (incoming.length !== decodedTiles.length) {
-        const oldTiles = decodedTiles;
-        const waterTile: DecodedTile = { terrain: 0, district: 0, road: 0, hasBuilding: false, elevation: 0, buildingId: 0 };
-        decodedTiles = new Array(incoming.length);
-        for (let i = 0; i < incoming.length; i++) {
-          decodedTiles[i] = i < oldTiles.length ? oldTiles[i] : { ...waterTile };
-        }
-        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
-      }
-      newDecodedTiles = incoming;
-      startStagedReveal();
+      decodedTiles = decodeTilemap(store.tilemap, store.mapWidth, store.mapHeight);
+      chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
       dirty = true;
     }
 
@@ -832,7 +634,7 @@ export default function TownCanvas() {
       const wallets = useTownStore.getState().wallets;
       const mw = useTownStore.getState().mapWidth;
       for (const [addr, w] of wallets) {
-        if (!shouldInclude(addr, w)) continue;
+        if (!shouldInclude(addr, w, decodedTiles, mw)) continue;
         const bld = makeBld(addr, w, decodedTiles, mw);
         bldMap.set(addr, bld);
         gridIndex.set(`${w.plotX},${w.plotY}`, bld);
@@ -851,9 +653,6 @@ export default function TownCanvas() {
       }
       lastDecoLength = decos.length;
 
-      // Start staged reveal when both tilemap and wallets are ready
-      startStagedReveal();
-
       dirty = true;
     }
 
@@ -868,7 +667,7 @@ export default function TownCanvas() {
       for (const addr of changed) {
         const w = wallets.get(addr);
         const existing = bldMap.get(addr);
-        const keep = w != null && shouldInclude(addr, w);
+        const keep = w != null && shouldInclude(addr, w, decodedTiles, useTownStore.getState().mapWidth);
 
         if (!keep) {
           if (existing) {
@@ -946,98 +745,70 @@ export default function TownCanvas() {
       // ── 1. TILEMAP GROUND (chunked) ──
       chunkCache.drawVisibleChunks(ctx, cx, cy, camScale, w, h);
 
-      // ── 1.2. ANIMATED WATER OVERLAY (cached in offscreen canvas) ──
-      if (decodedTiles && showAnim && camScale >= 0.2 && mapW > 0) {
-        // Determine if water cache needs update: camera moved, zoomed, or every 6 frames
-        const camChanged = camX !== waterCamX || camY !== waterCamY || camScale !== waterCamScale;
-        const sizeChanged = w !== waterVpW || h !== waterVpH;
-        const needWaterUpdate = camChanged || sizeChanged || (frame - waterLastFrame >= 6);
+      // ── 1.2. ANIMATED WATER OVERLAY ──
+      if (decodedTiles && showAnim && camScale >= 0.1 && mapW > 0) {
+        // Throttle wave animation update to every 6 frames (~100ms at 30fps)
+        if (frame % 6 === 0) waterAnimT = frame * 0.04;
 
-        if (needWaterUpdate) {
-          // Create / resize offscreen canvas
-          if (!waterCvs || sizeChanged) {
-            waterCvs = document.createElement('canvas');
-            waterCvs.width = w * dpr;
-            waterCvs.height = h * dpr;
-            waterCtx2 = waterCvs.getContext('2d')!;
+        const [tMinX, tMinY] = screenToTile(vl, vt);
+        const [tMaxX, tMaxY] = screenToTile(vr, vb);
+        const txStart = Math.max(0, Math.min(tMinX, tMinY) - 2);
+        const txEnd = Math.min(mapW - 1, Math.max(tMaxX, tMaxY) + 2);
+        const tyStart = Math.max(0, Math.min(tMinX, tMinY) - 2);
+        const tyEnd = Math.min(mapH - 1, Math.max(tMaxX, tMaxY) + 2);
+
+        const t = waterAnimT;
+        const hw = TILE_W / 2, hh = TILE_H / 2;
+
+        for (let ty2 = tyStart; ty2 <= tyEnd; ty2++) {
+          for (let tx = txStart; tx <= txEnd; tx++) {
+            const tile = decodedTiles[ty2 * mapW + tx];
+            if (!tile || tile.terrain !== 0) continue;
+
+            const elev = tile.elevation / 255 * 3;
+            const [sx, sy] = tileToScreen(tx, ty2, elev);
+            if (sx < vl || sx > vr || sy < vt || sy > vb) continue;
+
+            const wave1 = Math.sin(t + tx * 0.5 + ty2 * 0.4) * 0.5 + 0.5;
+            const wave2 = Math.sin(t * 0.6 + tx * 0.3 - ty2 * 0.6) * 0.5 + 0.5;
+            const wave3 = Math.sin(t * 1.2 + tx * 0.7 + ty2 * 0.2) * 0.5 + 0.5;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(sx, sy - hh);
+            ctx.lineTo(sx + hw, sy);
+            ctx.lineTo(sx, sy + hh);
+            ctx.lineTo(sx - hw, sy);
+            ctx.closePath();
+            ctx.clip();
+
+            const alpha1 = 0.12 + wave1 * 0.18;
+            ctx.fillStyle = `rgba(150, 210, 255, ${alpha1})`;
+            ctx.fillRect(sx - hw, sy - hh, TILE_W, TILE_H);
+
+            const alpha2 = 0.08 + wave2 * 0.14;
+            ctx.fillStyle = `rgba(10, 40, 100, ${alpha2})`;
+            const bandY = Math.sin(t * 0.5 + tx * 0.3) * hh * 0.6;
+            ctx.fillRect(sx - hw, sy + bandY - 2, TILE_W, 4);
+
+            const alpha3 = wave3 * 0.3;
+            ctx.fillStyle = `rgba(220, 240, 255, ${alpha3})`;
+            const glintX = sx + Math.sin(t * 0.8 + ty2 * 0.4) * hw * 0.4;
+            const glintY = sy + Math.cos(t * 0.6 + tx * 0.5) * hh * 0.3;
+            ctx.beginPath();
+            ctx.arc(glintX, glintY, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
           }
-          waterCtx2!.clearRect(0, 0, waterCvs.width, waterCvs.height);
-          waterCtx2!.setTransform(dpr * camScale, 0, 0, dpr * camScale, dpr * cx, dpr * cy);
-
-          const [tMinX, tMinY] = screenToTile(vl, vt);
-          const [tMaxX, tMaxY] = screenToTile(vr, vb);
-          const txStart = Math.max(0, Math.min(tMinX, tMinY) - 2);
-          const txEnd = Math.min(mapW - 1, Math.max(tMaxX, tMaxY) + 2);
-          const tyStart = Math.max(0, Math.min(tMinX, tMinY) - 2);
-          const tyEnd = Math.min(mapH - 1, Math.max(tMaxX, tMaxY) + 2);
-
-          const wCtx = waterCtx2!;
-          const t = frame * 0.04;
-          const hw = TILE_W / 2, hh = TILE_H / 2;
-
-          for (let ty2 = tyStart; ty2 <= tyEnd; ty2++) {
-            for (let tx = txStart; tx <= txEnd; tx++) {
-              const tile = decodedTiles[ty2 * mapW + tx];
-              if (!tile || tile.terrain !== 0) continue;
-
-              const elev = tile.elevation / 255 * 3;
-              const [sx, sy] = tileToScreen(tx, ty2, elev);
-              if (sx < vl || sx > vr || sy < vt || sy > vb) continue;
-
-              const wave1 = Math.sin(t + tx * 0.5 + ty2 * 0.4) * 0.5 + 0.5;
-              const wave2 = Math.sin(t * 0.6 + tx * 0.3 - ty2 * 0.6) * 0.5 + 0.5;
-              const wave3 = Math.sin(t * 1.2 + tx * 0.7 + ty2 * 0.2) * 0.5 + 0.5;
-
-              wCtx.save();
-              wCtx.beginPath();
-              wCtx.moveTo(sx, sy - hh);
-              wCtx.lineTo(sx + hw, sy);
-              wCtx.lineTo(sx, sy + hh);
-              wCtx.lineTo(sx - hw, sy);
-              wCtx.closePath();
-              wCtx.clip();
-
-              const alpha1 = 0.12 + wave1 * 0.18;
-              wCtx.fillStyle = `rgba(150, 210, 255, ${alpha1})`;
-              wCtx.fillRect(sx - hw, sy - hh, TILE_W, TILE_H);
-
-              const alpha2 = 0.08 + wave2 * 0.14;
-              wCtx.fillStyle = `rgba(10, 40, 100, ${alpha2})`;
-              const bandY = Math.sin(t * 0.5 + tx * 0.3) * hh * 0.6;
-              wCtx.fillRect(sx - hw, sy + bandY - 2, TILE_W, 4);
-
-              const alpha3 = wave3 * 0.3;
-              wCtx.fillStyle = `rgba(220, 240, 255, ${alpha3})`;
-              const glintX = sx + Math.sin(t * 0.8 + ty2 * 0.4) * hw * 0.4;
-              const glintY = sy + Math.cos(t * 0.6 + tx * 0.5) * hh * 0.3;
-              wCtx.beginPath();
-              wCtx.arc(glintX, glintY, 2.5, 0, Math.PI * 2);
-              wCtx.fill();
-
-              wCtx.restore();
-            }
-          }
-
-          waterCamX = camX; waterCamY = camY; waterCamScale = camScale;
-          waterVpW = w; waterVpH = h;
-          waterLastFrame = frame;
-        }
-
-        // Composite cached water overlay
-        if (waterCvs) {
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.drawImage(waterCvs, 0, 0);
-          ctx.restore();
-          ctx.setTransform(dpr * camScale, 0, 0, dpr * camScale, dpr * cx, dpr * cy);
         }
       }
 
       // ── 1.3. WHALES (skip when zoomed out) ──
       initWhaleSprites();
-      if (decodedTiles && showAnim && camScale >= 0.2) {
+      if (decodedTiles && showAnim && camScale >= 0.1) {
         updateWhales(decodedTiles, mapW, mapH);
-        const maxVisible = camScale < 0.4 ? 2 : whales.length;
+        const maxVisible = camScale < 0.15 ? 2 : whales.length;
         let rendered = 0;
         for (const whale of whales) {
           if (rendered >= maxVisible) break;
@@ -1086,7 +857,7 @@ export default function TownCanvas() {
         const cxEnd = (Math.max(tMaxX2, tMaxY2) + 2) >> 4;
         const cyStart = cxStart;
         const cyEnd = cxEnd;
-        const skipProgrammatic = camScale < 0.2;
+        const skipProgrammatic = camScale < 0.1;
 
         for (let ccy = cyStart; ccy <= cyEnd; ccy++) {
           for (let ccx = cxStart; ccx <= cxEnd; ccx++) {
@@ -1099,7 +870,6 @@ export default function TownCanvas() {
               const [dx, dy] = tileToScreen(deco.x, deco.y, elev);
               if (dx < vl || dx > vr || dy < vt || dy > vb) continue;
 
-              if (isStaging && !visibleDecoSet.has(`${deco.x},${deco.y}`)) continue;
 
               const sprite = getDecoSprite(deco.type, deco.x, deco.y);
               if (sprite) {
@@ -1209,6 +979,31 @@ export default function TownCanvas() {
                   ctx.fillRect(dx + 3, dy - 1, 2, 3);
                   break;
                 }
+                case 6: { // fence
+                  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+                  ctx.beginPath(); ctx.ellipse(dx, dy + 1, 8, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+                  // Posts
+                  ctx.fillStyle = '#7a4b23';
+                  ctx.fillRect(dx - 6, dy - 10, 2, 10);
+                  ctx.fillRect(dx - 1, dy - 10, 2, 10);
+                  ctx.fillRect(dx + 4, dy - 10, 2, 10);
+                  // Rails
+                  ctx.fillStyle = '#8c5a2a';
+                  ctx.fillRect(dx - 6, dy - 8, 12, 1.5);
+                  ctx.fillRect(dx - 6, dy - 4, 12, 1.5);
+                  break;
+                }
+                case 7: { // hedge
+                  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+                  ctx.beginPath(); ctx.ellipse(dx, dy + 1, 8, 2, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#2a5e22';
+                  ctx.fillRect(dx - 7, dy - 6, 14, 6);
+                  ctx.fillStyle = '#3a7e32';
+                  ctx.beginPath(); ctx.ellipse(dx, dy - 6, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#4a9a42';
+                  ctx.beginPath(); ctx.ellipse(dx - 1, dy - 7, 4, 2, 0, 0, Math.PI * 2); ctx.fill();
+                  break;
+                }
               }
             }
           }
@@ -1235,8 +1030,6 @@ export default function TownCanvas() {
         const b = sortedBlds[i];
         if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
 
-        // Skip buildings not yet staged
-        if (isStaging && !visibleBldSet.has(b.addr)) continue;
 
         const needAlpha = b.dmg > 50;
         if (needAlpha) ctx.globalAlpha = 0.7;
@@ -1292,7 +1085,7 @@ export default function TownCanvas() {
       }
 
       // ── 3. PARTICLES (skip when zoomed out) ──
-      if (showAnim && camScale >= 0.4) {
+      if (showAnim && camScale >= 0.12) {
         for (const p of particles) {
           p.life++;
           p.x += p.vx;
@@ -1322,14 +1115,13 @@ export default function TownCanvas() {
       syncFromStore();
       frame++;
       const idle = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
-      if ((idle && frame % 2 === 0) || isStaging) dirty = true;
+      if (idle && frame % 2 === 0) dirty = true;
       if (dirty) { dirty = false; draw(); }
     }
     rafId = requestAnimationFrame(loop);
 
     // ── CLEANUP ──
     return () => {
-      if (revealTimer) clearInterval(revealTimer);
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
       canvas.removeEventListener('pointerdown', onPointerDown);

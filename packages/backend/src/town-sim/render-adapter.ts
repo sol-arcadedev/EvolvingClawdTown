@@ -90,7 +90,7 @@ export function encodeDecorationList(state: TownState): EncodedDecoration[] {
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       const t = map.tiles[y * map.width + x];
-      if (t.clusterId > 0 && t.clusterId <= 5) {
+      if (t.clusterId > 0 && t.clusterId <= 7) {
         result.push({ x, y, type: t.clusterId });
       }
     }
