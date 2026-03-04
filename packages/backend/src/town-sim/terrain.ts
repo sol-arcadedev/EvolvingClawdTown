@@ -159,9 +159,9 @@ export function generateSmallIsland(width: number, height: number): TownMap {
   const cx = Math.floor(width / 2);
   const cy = Math.floor(height / 2);
 
-  // Water ring extends 12 tiles beyond land edge
-  const LAND_RADIUS = 14;
-  const WATER_RADIUS = LAND_RADIUS + 12;
+  // Water ring extends beyond land edge
+  const LAND_RADIUS = 30;
+  const WATER_RADIUS = LAND_RADIUS + 15;
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {

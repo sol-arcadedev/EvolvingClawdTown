@@ -116,9 +116,9 @@ function assignSmallTownDistricts(map: TownMap): void {
       const dy = y - cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist <= 8) {
+      if (dist <= 12) {
         tile.district = DISTRICT_CIVIC;
-      } else if (dist <= 14) {
+      } else if (dist <= 30) {
         tile.district = DISTRICT_RESIDENTIAL_LOW;
       }
     }
@@ -145,7 +145,7 @@ function generateInitialRoads(map: TownMap): void {
     map.tiles[idx].road = 1;
   };
 
-  // 1. Cardinal spokes (N/E/S/W) — from radius 2 to town edge (radius 14)
+  // 1. Cardinal spokes (N/E/S/W) — from radius 2 to town edge (radius 28)
   const cardinals: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 
   for (const [ddx, ddy] of cardinals) {
@@ -158,7 +158,7 @@ function generateInitialRoads(map: TownMap): void {
     }
 
     // Outer spoke: radius 5 to town edge
-    for (let r = 5; r <= 14; r++) {
+    for (let r = 5; r <= 28; r++) {
       setRoad(cx + ddx * r, cy + ddy * r);
     }
   }
@@ -173,8 +173,8 @@ function generateInitialRoads(map: TownMap): void {
     setRoad(rx, ry);
   }
 
-  // 3. Outer ring road at radius ~10 — connects spokes in residential zone
-  const outerRing = 10;
+  // 3. Outer ring road at radius ~14 — connects spokes in residential zone
+  const outerRing = 14;
   for (let i = 0; i < steps; i++) {
     const angle = (2 * Math.PI * i) / steps;
     const rx = Math.round(cx + outerRing * Math.cos(angle));
@@ -182,7 +182,17 @@ function generateInitialRoads(map: TownMap): void {
     setRoad(rx, ry, 2); // secondary road
   }
 
-  // 4. Diagonal spokes (NE/SE/SW/NW) — from moat bridge to outer ring
+  // 3b. Third ring road at radius ~22 — outer residential zone
+  const thirdRing = 22;
+  const stepsOuter = 96;
+  for (let i = 0; i < stepsOuter; i++) {
+    const angle = (2 * Math.PI * i) / stepsOuter;
+    const rx = Math.round(cx + thirdRing * Math.cos(angle));
+    const ry = Math.round(cy + thirdRing * Math.sin(angle));
+    setRoad(rx, ry, 2); // secondary road
+  }
+
+  // 4. Diagonal spokes (NE/SE/SW/NW) — from moat bridge to outer residential
   const diagonals: [number, number][] = [[1, -1], [1, 1], [-1, 1], [-1, -1]];
 
   for (const [ddx, ddy] of diagonals) {
@@ -192,34 +202,34 @@ function generateInitialRoads(map: TownMap): void {
       const y = cy + Math.round(ddy * r * 0.707);
       setBridge(x, y);
     }
-    // Road from radius 5 to outer ring
-    for (let r = 5; r <= 12; r++) {
+    // Road from radius 5 to outer residential
+    for (let r = 5; r <= 24; r++) {
       const x = cx + Math.round(ddx * r * 0.707);
       const y = cy + Math.round(ddy * r * 0.707);
       setRoad(x, y);
     }
   }
 
-  // 5. Local connector roads between spokes in civic zone (radius 5-8)
+  // 5. Local connector roads between spokes in civic zone (radius 5-10)
   //    Add short perpendicular stubs off each spoke to create plot adjacency
   for (const [ddx, ddy] of cardinals) {
-    for (let r = 5; r <= 8; r += 2) {
+    for (let r = 5; r <= 10; r += 2) {
       // Place local roads perpendicular to the spoke
       const px = -ddy; // perpendicular direction
       const py = ddx;
-      for (let offset = 1; offset <= 3; offset++) {
+      for (let offset = 1; offset <= 4; offset++) {
         setRoad(cx + ddx * r + px * offset, cy + ddy * r + py * offset, 3);
         setRoad(cx + ddx * r - px * offset, cy + ddy * r - py * offset, 3);
       }
     }
   }
 
-  // 6. Local connector roads between spokes in residential zone (radius 9-13)
+  // 6. Local connector roads between spokes in residential zone (radius 11-25)
   for (const [ddx, ddy] of cardinals) {
-    for (let r = 9; r <= 13; r += 3) {
+    for (let r = 11; r <= 25; r += 3) {
       const px = -ddy;
       const py = ddx;
-      for (let offset = 1; offset <= 4; offset++) {
+      for (let offset = 1; offset <= 5; offset++) {
         setRoad(cx + ddx * r + px * offset, cy + ddy * r + py * offset, 3);
         setRoad(cx + ddx * r - px * offset, cy + ddy * r - py * offset, 3);
       }
@@ -253,7 +263,7 @@ function placeForestRing(map: TownMap, rng: PRNG): void {
   const cx = Math.floor(map.width / 2);
   const cy = Math.floor(map.height / 2);
   const INNER_R = 5;  // just outside the moat
-  const OUTER_R = 10; // before outer residential zone
+  const OUTER_R = 8;  // compact ring, before civic zone roads
 
   for (let y = cy - OUTER_R; y <= cy + OUTER_R; y++) {
     for (let x = cx - OUTER_R; x <= cx + OUTER_R; x++) {
@@ -292,7 +302,7 @@ function scatterDecorations(map: TownMap, rng: PRNG): void {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       // Skip castle area and forest ring (already decorated)
-      if (dist <= 10) continue;
+      if (dist <= 8) continue;
 
       // ~25% chance to place a decoration on open land
       if (rng.next() > 0.25) continue;

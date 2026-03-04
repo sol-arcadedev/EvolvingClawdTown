@@ -73,23 +73,22 @@ function planExpansion(state: TownState, tier: number): PlacementPlan | null {
   const { angle, radius } = findGapDirection(state);
 
   // Walk outward from center in the chosen direction until we hit water,
-  // then place expansion center a few tiles into the water.
-  // This guarantees we always expand into water, no matter how far the town has grown.
+  // then place expansion center just 2 tiles past the last land tile.
+  // This keeps new land adjacent to existing town instead of leapfrogging to the ocean edge.
   const dirX = Math.cos(angle);
   const dirY = Math.sin(angle);
 
-  let waterEdgeDist = radius;
+  let landEdgeDist = 5; // default fallback
   for (let d = 5; d < 120; d++) {
     const tx = Math.round(cx + dirX * d);
     const ty = Math.round(cy + dirY * d);
-    if (!inBounds(map, tx, ty)) { waterEdgeDist = d - 1; break; }
+    if (!inBounds(map, tx, ty)) { landEdgeDist = d - 1; break; }
     const t = map.tiles[ty * map.width + tx];
-    if (t.terrain === TERRAIN_WATER) { waterEdgeDist = d; break; }
+    if (t.terrain === TERRAIN_WATER) { landEdgeDist = d; break; }
   }
 
-  // Place expansion center at the water edge (not deep into ocean)
-  // so the new land patch stays connected to the existing island
-  const expDist = waterEdgeDist + 1;
+  // Place expansion center just past the land edge — keeps town compact
+  const expDist = landEdgeDist + 2;
   const expCenter: TileCoord = {
     x: Math.round(cx + dirX * expDist),
     y: Math.round(cy + dirY * expDist),
