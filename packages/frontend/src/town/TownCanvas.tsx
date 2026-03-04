@@ -27,6 +27,283 @@ const CLAWD_HQ_ADDRESS = 'clawd-architect-hq';
 
 const BG_CSS = '#' + COL_BG.toString(16).padStart(6, '0');
 
+// ── DECORATION SPRITES (SD-generated, loaded from /assets/decorations/) ──
+const DECO_SPRITE_KEYS: Record<number, string[]> = {
+  1: ['tree-1', 'tree-2', 'tree-3', 'pine-1', 'pine-2'],  // tree
+  2: ['bush-1', 'bush-2'],                                   // bush
+  3: ['rock-1', 'rock-2'],                                   // rock
+  4: ['fountain-1'],                                          // fountain
+  5: ['bench-1'],                                             // bench
+};
+const DECO_SPRITE_SIZE = 28;
+const decoSpriteCache = new Map<string, HTMLImageElement | null>();
+let decoSpritesInitialized = false;
+
+function initDecoSprites(): void {
+  if (decoSpritesInitialized) return;
+  decoSpritesInitialized = true;
+  for (const keys of Object.values(DECO_SPRITE_KEYS)) {
+    for (const key of keys) {
+      const img = new Image();
+      img.src = `/assets/decorations/${key}.png`;
+      img.onload = () => decoSpriteCache.set(key, img);
+      img.onerror = () => decoSpriteCache.set(key, null);
+    }
+  }
+}
+
+function getDecoSprite(type: number, tileX: number, tileY: number): HTMLImageElement | null {
+  const variants = DECO_SPRITE_KEYS[type];
+  if (!variants) return null;
+  const idx = ((tileX * 31 + tileY * 17) & 0x7fffffff) % variants.length;
+  return decoSpriteCache.get(variants[idx]) ?? null;
+}
+
+// ── WHALE SPRITES ──
+const WHALE_SPRITE_KEYS = [
+  'whale-swim-1', 'whale-swim-2',   // full body right/left
+  'whale-tail-1',                     // tail submerging
+  'whale-breach-1',                   // dorsal surfacing
+  'whale-swim-3', 'whale-swim-4',   // small calf right/left
+];
+const whaleSpriteCache = new Map<string, HTMLImageElement | null>();
+let whaleSpritesInitialized = false;
+
+function initWhaleSprites(): void {
+  if (whaleSpritesInitialized) return;
+  whaleSpritesInitialized = true;
+  for (const key of WHALE_SPRITE_KEYS) {
+    const img = new Image();
+    img.src = `/assets/decorations/${key}.png`;
+    img.onload = () => whaleSpriteCache.set(key, img);
+    img.onerror = () => whaleSpriteCache.set(key, null);
+  }
+}
+
+type WhalePhase = 'submerged' | 'surfacing' | 'swimming' | 'submerging';
+
+interface WhaleEntity {
+  // Position in tile coords (floating point for smooth movement)
+  tx: number;
+  ty: number;
+  // Movement direction (tile units per frame)
+  dx: number;
+  dy: number;
+  // Current phase and frame counter within that phase
+  phase: WhalePhase;
+  phaseFrame: number;
+  phaseDuration: number;
+  // Visual
+  spriteKey: string;
+  alpha: number;
+  isSmall: boolean; // calf variant
+  facingLeft: boolean;
+}
+
+const MAX_WHALES = 5;
+const WHALE_SPEED = 0.012; // tiles per frame
+const whales: WhaleEntity[] = [];
+let whaleSpawnTimer = 0;
+
+function findRandomWaterTile(decoded: DecodedTile[] | null, mapW: number, mapH: number): [number, number] | null {
+  if (!decoded || mapW === 0) return null;
+  // Try up to 50 random positions
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const tx = Math.floor(Math.random() * mapW);
+    const ty = Math.floor(Math.random() * mapH);
+    const tile = decoded[ty * mapW + tx];
+    if (tile && tile.terrain === 0) {
+      // Make sure it's not right at the edge (needs room to swim)
+      if (tx > 3 && tx < mapW - 3 && ty > 3 && ty < mapH - 3) return [tx, ty];
+    }
+  }
+  return null;
+}
+
+function isWaterAt(decoded: DecodedTile[] | null, mapW: number, tx: number, ty: number): boolean {
+  if (!decoded || mapW === 0) return false;
+  const ix = Math.floor(tx);
+  const iy = Math.floor(ty);
+  if (ix < 0 || ix >= mapW || iy < 0) return false;
+  const tile = decoded[iy * mapW + ix];
+  return tile ? tile.terrain === 0 : false;
+}
+
+function spawnWhale(decoded: DecodedTile[] | null, mapW: number, mapH: number): WhaleEntity | null {
+  const pos = findRandomWaterTile(decoded, mapW, mapH);
+  if (!pos) return null;
+
+  const isSmall = Math.random() < 0.3;
+  const facingLeft = Math.random() < 0.5;
+  // Random swim direction with slight bias to go diagonally
+  const angle = Math.random() * Math.PI * 2;
+  const speed = WHALE_SPEED * (0.7 + Math.random() * 0.6);
+
+  return {
+    tx: pos[0],
+    ty: pos[1],
+    dx: Math.cos(angle) * speed,
+    dy: Math.sin(angle) * speed,
+    phase: 'submerged',
+    phaseFrame: 0,
+    phaseDuration: 60 + Math.floor(Math.random() * 120), // wait before surfacing
+    spriteKey: isSmall ? (facingLeft ? 'whale-swim-4' : 'whale-swim-3') : 'whale-breach-1',
+    alpha: 0,
+    isSmall,
+    facingLeft,
+  };
+}
+
+function updateWhales(decoded: DecodedTile[] | null, mapW: number, mapH: number) {
+  // Spawn new whales periodically
+  whaleSpawnTimer++;
+  if (whaleSpawnTimer > 180 && whales.length < MAX_WHALES) { // every ~3 seconds at 60fps
+    whaleSpawnTimer = 0;
+    const w = spawnWhale(decoded, mapW, mapH);
+    if (w) whales.push(w);
+  }
+
+  for (let i = whales.length - 1; i >= 0; i--) {
+    const w = whales[i];
+    w.phaseFrame++;
+
+    switch (w.phase) {
+      case 'submerged':
+        w.alpha = 0;
+        if (w.phaseFrame >= w.phaseDuration) {
+          w.phase = 'surfacing';
+          w.phaseFrame = 0;
+          w.phaseDuration = 60 + Math.floor(Math.random() * 40); // ~1-1.7 sec
+          w.spriteKey = 'whale-breach-1';
+        }
+        break;
+
+      case 'surfacing':
+        w.alpha = Math.min(1, w.phaseFrame / 30); // fade in over 0.5 sec
+        if (w.phaseFrame >= w.phaseDuration) {
+          w.phase = 'swimming';
+          w.phaseFrame = 0;
+          w.phaseDuration = 300 + Math.floor(Math.random() * 300); // 5-10 sec swim
+          // Pick swimming sprite based on direction
+          if (w.isSmall) {
+            w.spriteKey = w.facingLeft ? 'whale-swim-4' : 'whale-swim-3';
+          } else {
+            w.spriteKey = w.facingLeft ? 'whale-swim-2' : 'whale-swim-1';
+          }
+          w.alpha = 1;
+        }
+        break;
+
+      case 'swimming':
+        w.alpha = 1;
+        // Move whale
+        const nextTx = w.tx + w.dx;
+        const nextTy = w.ty + w.dy;
+        // Bounce off non-water tiles
+        if (!isWaterAt(decoded, mapW, nextTx, nextTy)) {
+          w.dx = -w.dx + (Math.random() - 0.5) * 0.005;
+          w.dy = -w.dy + (Math.random() - 0.5) * 0.005;
+          w.facingLeft = w.dx < 0;
+          if (w.isSmall) {
+            w.spriteKey = w.facingLeft ? 'whale-swim-4' : 'whale-swim-3';
+          } else {
+            w.spriteKey = w.facingLeft ? 'whale-swim-2' : 'whale-swim-1';
+          }
+        } else {
+          w.tx = nextTx;
+          w.ty = nextTy;
+        }
+        // Update facing based on dx
+        if (w.phaseFrame % 60 === 0) {
+          w.facingLeft = w.dx < 0;
+          if (w.isSmall) {
+            w.spriteKey = w.facingLeft ? 'whale-swim-4' : 'whale-swim-3';
+          } else {
+            w.spriteKey = w.facingLeft ? 'whale-swim-2' : 'whale-swim-1';
+          }
+        }
+        if (w.phaseFrame >= w.phaseDuration) {
+          w.phase = 'submerging';
+          w.phaseFrame = 0;
+          w.phaseDuration = 80 + Math.floor(Math.random() * 40);
+          w.spriteKey = 'whale-tail-1';
+        }
+        break;
+
+      case 'submerging':
+        w.alpha = Math.max(0, 1 - w.phaseFrame / 50); // fade out
+        if (w.phaseFrame >= w.phaseDuration) {
+          // Remove whale (it will respawn later)
+          whales.splice(i, 1);
+        }
+        break;
+    }
+  }
+}
+
+// ── CONSTRUCTION ANIMATION (single sprite, animated programmatically) ──
+let constructionImg: HTMLImageElement | null = null;
+let constructionImgLoaded = false;
+
+function initConstructionSprite(): void {
+  if (constructionImgLoaded) return;
+  constructionImgLoaded = true;
+  const img = new Image();
+  img.src = '/assets/decorations/construction-2.png';
+  img.onload = () => { constructionImg = img; };
+  img.onerror = () => { constructionImg = null; };
+}
+
+function drawConstructionAnim(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  bp: number, frame: number, size: number,
+  camScale = 1,
+): void {
+  const progress = bp / 100; // 0..1
+
+  if (constructionImg) {
+    ctx.save();
+
+    // Clip: reveal sprite from bottom up based on progress
+    const revealH = size * (0.2 + progress * 0.8); // always show at least 20%
+    ctx.beginPath();
+    ctx.rect(x - size / 2, y - revealH + 4, size, revealH);
+    ctx.clip();
+
+    // Slight bounce when building
+    const bounce = Math.sin(frame * 0.08) * (1 - progress) * 1.5;
+    ctx.drawImage(constructionImg, x - size / 2, y - size + 4 + bounce, size, size);
+    ctx.restore();
+  } else {
+    // Fallback scaffold
+    const s = size * 0.4;
+    ctx.strokeStyle = `hsl(30, 50%, 50%)`;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - s / 2, y - s * progress, s, s * progress);
+  }
+
+  // Dust / sparkle particles around the construction site
+  if (camScale < 0.4) return; // skip particles when zoomed out
+  const particleCount = Math.min(2, Math.ceil((1 - progress) * 4) + 1); // capped at 2
+  const t = frame * 0.05;
+  for (let i = 0; i < particleCount; i++) {
+    const seed = i * 137.5;
+    const px = x + Math.sin(t + seed) * size * 0.45;
+    const py = y - size * progress * 0.5 + Math.cos(t * 1.3 + seed) * size * 0.25;
+    const sparkle = Math.sin(t * 2 + seed) * 0.5 + 0.5;
+    const pSize = 1 + sparkle * 1.5;
+
+    // Alternate between dust (brown) and sparkle (yellow)
+    if (i % 2 === 0) {
+      ctx.fillStyle = `rgba(180, 150, 100, ${0.3 + sparkle * 0.4})`;
+    } else {
+      ctx.fillStyle = `rgba(255, 230, 100, ${0.2 + sparkle * 0.5})`;
+    }
+    ctx.fillRect(px - pSize / 2, py - pSize / 2, pSize, pSize);
+  }
+}
+
 // ── PARTICLES ──
 const P_EXTENT = 2000;
 const PARTICLE_CSS = PARTICLE_COLORS.map(
@@ -115,8 +392,11 @@ interface Bld {
 
 function makeBld(addr: string, w: WalletState, tiles: DecodedTile[] | null, mapW: number): Bld {
   // Convert tilemap coords to isometric screen coords, matching tile elevation
-  const elev = tiles ? (tiles[w.plotY * mapW + w.plotX]?.elevation ?? 0) / 255 * 3 : 0;
-  const [wx, wy] = tileToScreen(w.plotX, w.plotY, elev);
+  // Center building in its 3x3 plot (plotX/plotY is top-left origin)
+  const centerX = w.plotX + 1;
+  const centerY = w.plotY + 1;
+  const elev = tiles ? (tiles[centerY * mapW + centerX]?.elevation ?? 0) / 255 * 3 : 0;
+  const [wx, wy] = tileToScreen(centerX, centerY, elev);
   const tier = Math.min(w.houseTier, 5);
   return {
     wx, wy,
@@ -171,6 +451,17 @@ export default function TownCanvas() {
     const bldMap = new Map<string, Bld>();
     let sortedBlds: Bld[] = [];
     const gridIndex = new Map<string, Bld>();
+
+    // Decoration spatial index (16-tile chunks)
+    const decoChunkIndex = new Map<string, Array<{x: number; y: number; type: number}>>();
+    let lastDecoLength = -1;
+
+    // Offscreen water overlay cache
+    let waterCvs: HTMLCanvasElement | null = null;
+    let waterCtx2: CanvasRenderingContext2D | null = null;
+    let waterCamX = NaN, waterCamY = NaN, waterCamScale = NaN;
+    let waterVpW = 0, waterVpH = 0;
+    let waterLastFrame = -999;
 
     // Hover
     let hoveredAddr: string | null = null;
@@ -303,6 +594,180 @@ export default function TownCanvas() {
 
     let frame = 0;
 
+    // ── STAGED REVEAL ──
+    // Tiles, decorations, and buildings appear one by one from center outward.
+    // Works on both first load and reseed.
+    const REVEAL_INTERVAL = 500; // ms between each batch
+    const TILE_BATCH_SIZE = 8;   // tiles per tick
+    const OBJ_BATCH_SIZE = 2;    // objects per tick (strict cap)
+    let revealTimer: ReturnType<typeof setInterval> | null = null;
+    let isStaging = false;
+    let lastStagedSeed = -1;
+
+    // Tile reveal state
+    let newDecodedTiles: DecodedTile[] | null = null;
+    let tileRevealQueue: number[] = [];
+    let pendingTileSet = new Set<number>();
+
+    // Object reveal queue — strictly ordered, released N per tick
+    type ObjQueueItem = { kind: 'deco'; data: { x: number; y: number; type: number } } | { kind: 'bld'; addr: string };
+    let objRevealQueue: ObjQueueItem[] = [];
+    let visibleDecoSet = new Set<string>();
+    let visibleBldSet = new Set<string>();
+
+    function startStagedReveal() {
+      const store = useTownStore.getState();
+
+      // Don't restart staging if we already staged for this seed
+      if (store.townSeed === lastStagedSeed) return;
+
+      // Need both tilemap and wallets ready before starting
+      if (!newDecodedTiles || !decodedTiles) return;
+      if (store.wallets.size === 0 && store.decorations.length === 0) return;
+
+      lastStagedSeed = store.townSeed;
+
+      if (revealTimer) clearInterval(revealTimer);
+      visibleDecoSet.clear();
+      visibleBldSet.clear();
+      pendingTileSet.clear();
+      tileRevealQueue = [];
+      objRevealQueue = [];
+      isStaging = true;
+
+      const mapW = store.mapWidth;
+      const midTX = mapW / 2;
+      const midTY = store.mapHeight / 2;
+
+      // Find tiles that differ (or are new)
+      const changedTiles: Array<{ idx: number; dist: number }> = [];
+      for (let i = 0; i < newDecodedTiles.length; i++) {
+        const oldT = decodedTiles[i];
+        const newT = newDecodedTiles[i];
+        if (!newT) continue;
+        if (!oldT ||
+            oldT.terrain !== newT.terrain || oldT.district !== newT.district ||
+            oldT.road !== newT.road || oldT.hasBuilding !== newT.hasBuilding) {
+          const tx = i % mapW;
+          const ty = Math.floor(i / mapW);
+          changedTiles.push({ idx: i, dist: Math.hypot(tx - midTX, ty - midTY) });
+        }
+      }
+      changedTiles.sort((a, b) => a.dist - b.dist);
+      tileRevealQueue = changedTiles.map(t => t.idx);
+      pendingTileSet = new Set(tileRevealQueue);
+
+      // Build object queue sorted by distance — these are revealed strictly in order
+      const objItems: Array<{ dist: number; item: ObjQueueItem }> = [];
+      for (const d of store.decorations) {
+        objItems.push({ dist: Math.hypot(d.x - midTX, d.y - midTY), item: { kind: 'deco', data: d } });
+      }
+      for (const [addr, w] of store.wallets) {
+        objItems.push({ dist: Math.hypot(w.plotX - midTX, w.plotY - midTY), item: { kind: 'bld', addr } });
+      }
+      objItems.sort((a, b) => a.dist - b.dist);
+      objRevealQueue = objItems.map(o => o.item);
+
+      // Nothing to stage
+      if (tileRevealQueue.length === 0 && objRevealQueue.length === 0) {
+        decodedTiles = newDecodedTiles;
+        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+        isStaging = false;
+        dirty = true;
+        return;
+      }
+
+      // Fast-forward: skip items that should already be visible based on elapsed time
+      const elapsed = store.reseedElapsedMs;
+      if (elapsed > 0 && elapsed < Infinity) {
+        const ticksElapsed = Math.floor(elapsed / REVEAL_INTERVAL);
+        // Fast-forward tiles
+        const tilesToSkip = Math.min(ticksElapsed * TILE_BATCH_SIZE, tileRevealQueue.length);
+        for (let i = 0; i < tilesToSkip; i++) {
+          const idx = tileRevealQueue.shift()!;
+          pendingTileSet.delete(idx);
+          decodedTiles![idx] = newDecodedTiles![idx];
+        }
+        // Fast-forward objects
+        const objTicksElapsed = Math.max(0, ticksElapsed - Math.ceil((tilesToSkip / TILE_BATCH_SIZE)));
+        const objsToSkip = Math.min(objTicksElapsed * OBJ_BATCH_SIZE, objRevealQueue.length);
+        for (let i = 0; i < objsToSkip; i++) {
+          const item = objRevealQueue.shift()!;
+          if (item.kind === 'deco') visibleDecoSet.add(`${item.data.x},${item.data.y}`);
+          else visibleBldSet.add(item.addr);
+        }
+        if (tilesToSkip > 0) chunkCache.invalidateAll();
+      }
+
+      // If everything was fast-forwarded, done
+      if (tileRevealQueue.length === 0 && objRevealQueue.length === 0) {
+        decodedTiles = newDecodedTiles;
+        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+        isStaging = false;
+        dirty = true;
+        return;
+      }
+
+      revealTimer = setInterval(() => {
+        let changed = false;
+
+        // Phase 1: Reveal tile batch
+        if (tileRevealQueue.length > 0) {
+          const batch = Math.min(TILE_BATCH_SIZE, tileRevealQueue.length);
+          for (let i = 0; i < batch; i++) {
+            const idx = tileRevealQueue.shift()!;
+            pendingTileSet.delete(idx);
+            decodedTiles![idx] = newDecodedTiles![idx];
+            const tx = idx % mapW;
+            const ty = Math.floor(idx / mapW);
+            chunkCache.invalidateChunk(tx, ty);
+          }
+          changed = true;
+        }
+
+        // Phase 2: Reveal exactly OBJ_BATCH_SIZE objects per tick (strict)
+        // Only reveal if the object's tile is not still pending
+        if (objRevealQueue.length > 0) {
+          let released = 0;
+          const deferred: ObjQueueItem[] = [];
+          for (let i = 0; i < objRevealQueue.length && released < OBJ_BATCH_SIZE; i++) {
+            const item = objRevealQueue[i];
+            let tileIdx = -1;
+            if (item.kind === 'deco') {
+              tileIdx = item.data.y * mapW + item.data.x;
+            } else {
+              const w = store.wallets.get(item.addr);
+              if (w) tileIdx = w.plotY * mapW + w.plotX;
+            }
+            if (tileIdx >= 0 && pendingTileSet.has(tileIdx)) {
+              deferred.push(item);
+            } else {
+              if (item.kind === 'deco') visibleDecoSet.add(`${item.data.x},${item.data.y}`);
+              else visibleBldSet.add(item.addr);
+              released++;
+              changed = true;
+            }
+          }
+          // Keep unreleased items (both deferred and not-yet-scanned)
+          objRevealQueue = [...deferred, ...objRevealQueue.slice(deferred.length + released)];
+        }
+
+        if (changed) dirty = true;
+
+        // Done
+        if (tileRevealQueue.length === 0 && objRevealQueue.length === 0) {
+          if (revealTimer) clearInterval(revealTimer);
+          revealTimer = null;
+          isStaging = false;
+          if (newDecodedTiles) {
+            decodedTiles = newDecodedTiles;
+            chunkCache.invalidateAll();
+          }
+          dirty = true;
+        }
+      }, REVEAL_INTERVAL);
+    }
+
     // ── LOCATE HOUSE ──
     useTownStore.getState().setLocateHouse((address: string) => {
       const w = useTownStore.getState().wallets.get(address);
@@ -321,8 +786,42 @@ export default function TownCanvas() {
       const store = useTownStore.getState();
       if (!store.tilemap || store.mapWidth === 0) return;
 
-      decodedTiles = decodeTilemap(store.tilemap, store.mapWidth, store.mapHeight);
-      chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+      // Clear whales on tilemap change (reseed)
+      whales.length = 0;
+      whaleSpawnTimer = 0;
+
+      const incoming = decodeTilemap(store.tilemap, store.mapWidth, store.mapHeight);
+
+      // Compute total reveal duration based on estimated items
+      const totalItems = (store.decorations?.length ?? 0) + store.wallets.size;
+      const totalTileChanges = incoming.length; // rough upper bound
+      const totalRevealDuration = (totalTileChanges / TILE_BATCH_SIZE + totalItems / OBJ_BATCH_SIZE) * REVEAL_INTERVAL;
+
+      // If reseed was long ago (reveal is done), show everything immediately
+      if (store.reseedElapsedMs > totalRevealDuration + 5000) {
+        decodedTiles = incoming;
+        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+        dirty = true;
+        return;
+      }
+
+      // Reseed is recent — set up for staged reveal
+      // Start with empty (water) tiles so the diff covers everything
+      if (!decodedTiles || decodedTiles.length === 0) {
+        const waterTile: DecodedTile = { terrain: 0, district: 0, road: 0, hasBuilding: false, elevation: 0, buildingId: 0 };
+        decodedTiles = incoming.map(() => ({ ...waterTile }));
+        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+      } else if (incoming.length !== decodedTiles.length) {
+        const oldTiles = decodedTiles;
+        const waterTile: DecodedTile = { terrain: 0, district: 0, road: 0, hasBuilding: false, elevation: 0, buildingId: 0 };
+        decodedTiles = new Array(incoming.length);
+        for (let i = 0; i < incoming.length; i++) {
+          decodedTiles[i] = i < oldTiles.length ? oldTiles[i] : { ...waterTile };
+        }
+        chunkCache.setTilemap(decodedTiles, store.mapWidth, store.mapHeight);
+      }
+      newDecodedTiles = incoming;
+      startStagedReveal();
       dirty = true;
     }
 
@@ -340,6 +839,21 @@ export default function TownCanvas() {
       }
       sortedBlds = Array.from(bldMap.values());
       sortedBlds.sort((a, b) => a.depth - b.depth);
+
+      // Rebuild decoration spatial index
+      const decos = useTownStore.getState().decorations;
+      decoChunkIndex.clear();
+      for (const d of decos) {
+        const key = `${d.x >> 4},${d.y >> 4}`;
+        let arr = decoChunkIndex.get(key);
+        if (!arr) { arr = []; decoChunkIndex.set(key, arr); }
+        arr.push(d);
+      }
+      lastDecoLength = decos.length;
+
+      // Start staged reveal when both tilemap and wallets are ready
+      startStagedReveal();
+
       dirty = true;
     }
 
@@ -405,6 +919,12 @@ export default function TownCanvas() {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
 
+      // Cache store reads once per frame
+      const store = useTownStore.getState();
+      const mapW = store.mapWidth;
+      const mapH = store.mapHeight;
+      const decorations = store.decorations;
+
       // Background
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = BG_CSS;
@@ -426,59 +946,271 @@ export default function TownCanvas() {
       // ── 1. TILEMAP GROUND (chunked) ──
       chunkCache.drawVisibleChunks(ctx, cx, cy, camScale, w, h);
 
-      // ── 1.5. DECORATIONS ──
-      const decorations = useTownStore.getState().decorations;
-      const mapW = useTownStore.getState().mapWidth;
-      if (decorations.length > 0 && decodedTiles && mapW > 0) {
-        for (const deco of decorations) {
-          const tIdx = deco.y * mapW + deco.x;
-          const elev = decodedTiles[tIdx] ? decodedTiles[tIdx].elevation / 255 * 3 : 0;
-          const [dx, dy] = tileToScreen(deco.x, deco.y, elev);
-          if (dx < vl || dx > vr || dy < vt || dy > vb) continue;
+      // ── 1.2. ANIMATED WATER OVERLAY (cached in offscreen canvas) ──
+      if (decodedTiles && showAnim && camScale >= 0.2 && mapW > 0) {
+        // Determine if water cache needs update: camera moved, zoomed, or every 6 frames
+        const camChanged = camX !== waterCamX || camY !== waterCamY || camScale !== waterCamScale;
+        const sizeChanged = w !== waterVpW || h !== waterVpH;
+        const needWaterUpdate = camChanged || sizeChanged || (frame - waterLastFrame >= 6);
 
-          // Draw simple colored shapes for decorations
-          const size = 4;
-          switch (deco.type) {
-            case 1: // tree
-              ctx.fillStyle = '#2a6e2a';
-              ctx.beginPath();
-              ctx.arc(dx, dy - size, size, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.fillStyle = '#5a3a1a';
-              ctx.fillRect(dx - 1, dy - 2, 2, 4);
-              break;
-            case 2: // bush
-              ctx.fillStyle = '#3a8a3a';
-              ctx.beginPath();
-              ctx.arc(dx, dy - 2, 3, 0, Math.PI * 2);
-              ctx.fill();
-              break;
-            case 3: // rock
-              ctx.fillStyle = '#8a8a8a';
-              ctx.beginPath();
-              ctx.moveTo(dx - 3, dy);
-              ctx.lineTo(dx - 1, dy - 4);
-              ctx.lineTo(dx + 2, dy - 3);
-              ctx.lineTo(dx + 3, dy);
-              ctx.closePath();
-              ctx.fill();
-              break;
-            case 4: // fountain
-              ctx.fillStyle = '#7090c0';
-              ctx.beginPath();
-              ctx.arc(dx, dy - 2, 4, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.fillStyle = '#90b0e0';
-              ctx.beginPath();
-              ctx.arc(dx, dy - 4, 2, 0, Math.PI * 2);
-              ctx.fill();
-              break;
-            case 5: // bench
-              ctx.fillStyle = '#8b6914';
-              ctx.fillRect(dx - 4, dy - 1, 8, 2);
-              ctx.fillRect(dx - 3, dy - 3, 1, 3);
-              ctx.fillRect(dx + 2, dy - 3, 1, 3);
-              break;
+        if (needWaterUpdate) {
+          // Create / resize offscreen canvas
+          if (!waterCvs || sizeChanged) {
+            waterCvs = document.createElement('canvas');
+            waterCvs.width = w * dpr;
+            waterCvs.height = h * dpr;
+            waterCtx2 = waterCvs.getContext('2d')!;
+          }
+          waterCtx2!.clearRect(0, 0, waterCvs.width, waterCvs.height);
+          waterCtx2!.setTransform(dpr * camScale, 0, 0, dpr * camScale, dpr * cx, dpr * cy);
+
+          const [tMinX, tMinY] = screenToTile(vl, vt);
+          const [tMaxX, tMaxY] = screenToTile(vr, vb);
+          const txStart = Math.max(0, Math.min(tMinX, tMinY) - 2);
+          const txEnd = Math.min(mapW - 1, Math.max(tMaxX, tMaxY) + 2);
+          const tyStart = Math.max(0, Math.min(tMinX, tMinY) - 2);
+          const tyEnd = Math.min(mapH - 1, Math.max(tMaxX, tMaxY) + 2);
+
+          const wCtx = waterCtx2!;
+          const t = frame * 0.04;
+          const hw = TILE_W / 2, hh = TILE_H / 2;
+
+          for (let ty2 = tyStart; ty2 <= tyEnd; ty2++) {
+            for (let tx = txStart; tx <= txEnd; tx++) {
+              const tile = decodedTiles[ty2 * mapW + tx];
+              if (!tile || tile.terrain !== 0) continue;
+
+              const elev = tile.elevation / 255 * 3;
+              const [sx, sy] = tileToScreen(tx, ty2, elev);
+              if (sx < vl || sx > vr || sy < vt || sy > vb) continue;
+
+              const wave1 = Math.sin(t + tx * 0.5 + ty2 * 0.4) * 0.5 + 0.5;
+              const wave2 = Math.sin(t * 0.6 + tx * 0.3 - ty2 * 0.6) * 0.5 + 0.5;
+              const wave3 = Math.sin(t * 1.2 + tx * 0.7 + ty2 * 0.2) * 0.5 + 0.5;
+
+              wCtx.save();
+              wCtx.beginPath();
+              wCtx.moveTo(sx, sy - hh);
+              wCtx.lineTo(sx + hw, sy);
+              wCtx.lineTo(sx, sy + hh);
+              wCtx.lineTo(sx - hw, sy);
+              wCtx.closePath();
+              wCtx.clip();
+
+              const alpha1 = 0.12 + wave1 * 0.18;
+              wCtx.fillStyle = `rgba(150, 210, 255, ${alpha1})`;
+              wCtx.fillRect(sx - hw, sy - hh, TILE_W, TILE_H);
+
+              const alpha2 = 0.08 + wave2 * 0.14;
+              wCtx.fillStyle = `rgba(10, 40, 100, ${alpha2})`;
+              const bandY = Math.sin(t * 0.5 + tx * 0.3) * hh * 0.6;
+              wCtx.fillRect(sx - hw, sy + bandY - 2, TILE_W, 4);
+
+              const alpha3 = wave3 * 0.3;
+              wCtx.fillStyle = `rgba(220, 240, 255, ${alpha3})`;
+              const glintX = sx + Math.sin(t * 0.8 + ty2 * 0.4) * hw * 0.4;
+              const glintY = sy + Math.cos(t * 0.6 + tx * 0.5) * hh * 0.3;
+              wCtx.beginPath();
+              wCtx.arc(glintX, glintY, 2.5, 0, Math.PI * 2);
+              wCtx.fill();
+
+              wCtx.restore();
+            }
+          }
+
+          waterCamX = camX; waterCamY = camY; waterCamScale = camScale;
+          waterVpW = w; waterVpH = h;
+          waterLastFrame = frame;
+        }
+
+        // Composite cached water overlay
+        if (waterCvs) {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.drawImage(waterCvs, 0, 0);
+          ctx.restore();
+          ctx.setTransform(dpr * camScale, 0, 0, dpr * camScale, dpr * cx, dpr * cy);
+        }
+      }
+
+      // ── 1.3. WHALES (skip when zoomed out) ──
+      initWhaleSprites();
+      if (decodedTiles && showAnim && camScale >= 0.2) {
+        updateWhales(decodedTiles, mapW, mapH);
+        const maxVisible = camScale < 0.4 ? 2 : whales.length;
+        let rendered = 0;
+        for (const whale of whales) {
+          if (rendered >= maxVisible) break;
+          if (whale.alpha <= 0) continue;
+          const [sx, sy] = tileToScreen(whale.tx, whale.ty, 0);
+          if (sx < vl || sx > vr || sy < vt || sy > vb) continue;
+
+          const sprite = whaleSpriteCache.get(whale.spriteKey);
+          if (sprite) {
+            ctx.save();
+            ctx.globalAlpha = whale.alpha;
+            const bob = whale.phase === 'swimming'
+              ? Math.sin(frame * 0.06 + whale.tx * 2) * 1.5
+              : 0;
+            const size = whale.isSmall ? 52 : 72;
+            const sizeH = size * (32 / 48);
+            ctx.drawImage(sprite, sx - size / 2, sy - sizeH / 2 + bob, size, sizeH);
+            ctx.globalAlpha = 1;
+            ctx.restore();
+            rendered++;
+          }
+        }
+      }
+
+      // ── 1.5. DECORATIONS (spatial-indexed) ──
+      initDecoSprites();
+      initConstructionSprite();
+
+      // Rebuild deco index if decorations changed
+      if (decorations.length !== lastDecoLength) {
+        decoChunkIndex.clear();
+        for (const d of decorations) {
+          const key = `${d.x >> 4},${d.y >> 4}`;
+          let arr = decoChunkIndex.get(key);
+          if (!arr) { arr = []; decoChunkIndex.set(key, arr); }
+          arr.push(d);
+        }
+        lastDecoLength = decorations.length;
+      }
+
+      if (decorations.length > 0 && decodedTiles && mapW > 0) {
+        // Compute visible chunk range from viewport
+        const [tMinX2, tMinY2] = screenToTile(vl, vt);
+        const [tMaxX2, tMaxY2] = screenToTile(vr, vb);
+        const cxStart = Math.max(0, (Math.min(tMinX2, tMinY2) - 2) >> 4);
+        const cxEnd = (Math.max(tMaxX2, tMaxY2) + 2) >> 4;
+        const cyStart = cxStart;
+        const cyEnd = cxEnd;
+        const skipProgrammatic = camScale < 0.2;
+
+        for (let ccy = cyStart; ccy <= cyEnd; ccy++) {
+          for (let ccx = cxStart; ccx <= cxEnd; ccx++) {
+            const chunk = decoChunkIndex.get(`${ccx},${ccy}`);
+            if (!chunk) continue;
+
+            for (const deco of chunk) {
+              const tIdx = deco.y * mapW + deco.x;
+              const elev = decodedTiles[tIdx] ? decodedTiles[tIdx].elevation / 255 * 3 : 0;
+              const [dx, dy] = tileToScreen(deco.x, deco.y, elev);
+              if (dx < vl || dx > vr || dy < vt || dy > vb) continue;
+
+              if (isStaging && !visibleDecoSet.has(`${deco.x},${deco.y}`)) continue;
+
+              const sprite = getDecoSprite(deco.type, deco.x, deco.y);
+              if (sprite) {
+                const s = deco.type === 1 ? DECO_SPRITE_SIZE : DECO_SPRITE_SIZE * 0.7;
+                ctx.drawImage(sprite, dx - s / 2, dy - s, s, s);
+                continue;
+              }
+
+              // Skip programmatic fallbacks when very zoomed out
+              if (skipProgrammatic) continue;
+
+              const dSeed = (deco.x * 31 + deco.y * 17) & 0xffff;
+
+              switch (deco.type) {
+                case 1: { // tree
+                  const variant = dSeed % 3;
+                  if (variant === 2) {
+                    ctx.fillStyle = '#5a3a18';
+                    ctx.fillRect(dx - 1.5, dy - 6, 3, 6);
+                    const layers = [
+                      { yo: -6, w: 12, h: 7, c: '#2d7a2d', dc: '#1a5a1a' },
+                      { yo: -11, w: 10, h: 6, c: '#3d9a3d', dc: '#267a26' },
+                      { yo: -15, w: 7, h: 5, c: '#4daa4d', dc: '#308a30' },
+                    ];
+                    for (const l of layers) {
+                      ctx.fillStyle = l.c;
+                      ctx.beginPath();
+                      ctx.moveTo(dx - l.w / 2, dy + l.yo);
+                      ctx.lineTo(dx, dy + l.yo - l.h);
+                      ctx.lineTo(dx + l.w / 2, dy + l.yo);
+                      ctx.closePath();
+                      ctx.fill();
+                      ctx.fillStyle = l.dc;
+                      ctx.beginPath();
+                      ctx.moveTo(dx - l.w / 2, dy + l.yo);
+                      ctx.lineTo(dx - l.w * 0.15, dy + l.yo - l.h * 0.9);
+                      ctx.lineTo(dx - 1, dy + l.yo);
+                      ctx.closePath();
+                      ctx.fill();
+                    }
+                  } else {
+                    const tall = variant === 1;
+                    const trunkH = tall ? 10 : 7;
+                    const cr = tall ? 9 : 8;
+                    const cy2 = dy - trunkH - cr + 2;
+                    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+                    ctx.beginPath(); ctx.ellipse(dx + 2, dy + 1, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#5a3a18';
+                    ctx.fillRect(dx - 2, dy - trunkH, 4, trunkH);
+                    ctx.fillStyle = '#7a5a30';
+                    ctx.fillRect(dx - 1, dy - trunkH, 2, trunkH);
+                    ctx.fillStyle = '#2a6e2a';
+                    ctx.beginPath(); ctx.arc(dx, cy2, cr, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#3d8c3d';
+                    ctx.beginPath(); ctx.arc(dx - 2, cy2 - 1, cr - 2, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#50a850';
+                    ctx.beginPath(); ctx.arc(dx - 1, cy2 - 3, cr - 4, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#68c048';
+                    ctx.beginPath(); ctx.arc(dx - 2, cy2 - 4, 3, 0, Math.PI * 2); ctx.fill();
+                  }
+                  break;
+                }
+                case 2: { // bush
+                  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+                  ctx.beginPath(); ctx.ellipse(dx + 1, dy + 1, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#3a7a2a';
+                  ctx.beginPath(); ctx.arc(dx, dy - 3, 5, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#5aaa45';
+                  ctx.beginPath(); ctx.arc(dx - 1, dy - 4, 3.5, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#70c050';
+                  ctx.beginPath(); ctx.arc(dx - 1, dy - 5, 2, 0, Math.PI * 2); ctx.fill();
+                  break;
+                }
+                case 3: { // rock
+                  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+                  ctx.beginPath(); ctx.ellipse(dx + 1, dy + 1, 5, 2, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#8a7050';
+                  ctx.beginPath(); ctx.moveTo(dx - 5, dy); ctx.lineTo(dx - 2, dy - 6); ctx.lineTo(dx + 1, dy - 5); ctx.lineTo(dx + 1, dy); ctx.closePath(); ctx.fill();
+                  ctx.fillStyle = '#a89070';
+                  ctx.beginPath(); ctx.moveTo(dx + 1, dy); ctx.lineTo(dx + 1, dy - 5); ctx.lineTo(dx + 5, dy - 3); ctx.lineTo(dx + 5, dy); ctx.closePath(); ctx.fill();
+                  ctx.fillStyle = '#baa880';
+                  ctx.beginPath(); ctx.moveTo(dx - 2, dy - 6); ctx.lineTo(dx + 1, dy - 7); ctx.lineTo(dx + 5, dy - 3); ctx.lineTo(dx + 1, dy - 5); ctx.closePath(); ctx.fill();
+                  break;
+                }
+                case 4: { // fountain
+                  ctx.fillStyle = '#9a8a70';
+                  ctx.beginPath(); ctx.ellipse(dx, dy, 7, 4, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#5090cc';
+                  ctx.beginPath(); ctx.ellipse(dx, dy - 1, 5.5, 3, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#70b0e8';
+                  ctx.beginPath(); ctx.ellipse(dx - 1, dy - 2, 3, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#a09080';
+                  ctx.fillRect(dx - 1, dy - 7, 2, 6);
+                  ctx.fillStyle = '#90c8f0';
+                  ctx.beginPath(); ctx.arc(dx, dy - 8, 2, 0, Math.PI * 2); ctx.fill();
+                  break;
+                }
+                case 5: { // bench
+                  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+                  ctx.beginPath(); ctx.ellipse(dx, dy + 1, 7, 2, 0, 0, Math.PI * 2); ctx.fill();
+                  ctx.fillStyle = '#8b6914';
+                  ctx.beginPath(); ctx.moveTo(dx - 6, dy - 1); ctx.lineTo(dx - 4, dy - 3); ctx.lineTo(dx + 6, dy - 3); ctx.lineTo(dx + 4, dy - 1); ctx.closePath(); ctx.fill();
+                  ctx.fillStyle = '#a08020';
+                  ctx.beginPath(); ctx.moveTo(dx - 5, dy - 2); ctx.lineTo(dx - 3, dy - 3.5); ctx.lineTo(dx + 5, dy - 3.5); ctx.lineTo(dx + 3, dy - 2); ctx.closePath(); ctx.fill();
+                  ctx.fillStyle = '#6a4a10';
+                  ctx.fillRect(dx - 5, dy - 1, 2, 3);
+                  ctx.fillRect(dx + 3, dy - 1, 2, 3);
+                  break;
+                }
+              }
+            }
           }
         }
       }
@@ -487,21 +1219,27 @@ export default function TownCanvas() {
 
       const hqImg = getClawdHQImage();
 
-      // 3x3 tile bounding box for buildings
-      const maxBoxW = TILE_W * 3;  // max width in pixels (96)
-      const maxBoxH = TILE_W * 3;  // max height in pixels (96)
+      // Building sizing: each building gets a 3x3 tile plot.
+      // One isometric tile = TILE_W x TILE_H (32x16) on screen.
+      // A 3x3 isometric area is roughly 3*TILE_W wide = 96px, 3*TILE_H tall = 48px.
+      // But buildings rise above the tile, so max height ≈ 2 * maxW for tall structures.
+      const maxBoxW = TILE_W * 2.5; // 80px — max width for tier 5 (stays within 3 tiles)
+      const maxBoxH = TILE_W * 2.5; // 80px — max height for tier 5
 
-      // Tier controls how much of the 3x3 box is filled (40%-100%)
+      // Tier 1: fits on 1 tile (~TILE_W = 32px). Tier 5: fills 3x3 area (~80px)
       const TIER_FILL: Record<number, number> = {
-        0: 0.3, 1: 0.45, 2: 0.55, 3: 0.7, 4: 0.85, 5: 1.0,
+        0: 0.15, 1: 0.4, 2: 0.5, 3: 0.65, 4: 0.8, 5: 1.0,
       };
 
       for (let i = 0; i < sortedBlds.length; i++) {
         const b = sortedBlds[i];
         if (b.wx < vl || b.wx > vr || b.wy < vt || b.wy > vb) continue;
 
-        const needAlpha = b.bp < 100 || b.dmg > 50;
-        if (needAlpha) ctx.globalAlpha = b.bp < 100 ? 0.35 : 0.6;
+        // Skip buildings not yet staged
+        if (isStaging && !visibleBldSet.has(b.addr)) continue;
+
+        const needAlpha = b.dmg > 50;
+        if (needAlpha) ctx.globalAlpha = 0.7;
 
         if (b.addr === CLAWD_HQ_ADDRESS && hqImg) {
           // Clawd HQ fills the full 3x3 box
@@ -511,10 +1249,12 @@ export default function TownCanvas() {
           else { drawW = maxBoxH * aspect; }
           ctx.drawImage(hqImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
         } else if (b.tier === 0) {
-          ctx.fillStyle = hsl(b.hue, 70, 50, 0.3);
-          ctx.fillRect(b.wx - 3, b.wy - 3, 6, 6);
-          ctx.fillStyle = hsl(b.hue, 70, 50, 0.6);
-          ctx.fillRect(b.wx - 1.5, b.wy - 1.5, 3, 3);
+          // Tier 0 — no visual, just a plot
+        } else if (b.bp < 100) {
+          // Under construction — animated construction sprite
+          const fill = TIER_FILL[b.tier] ?? 0.5;
+          const s = maxBoxW * fill * 0.75;
+          drawConstructionAnim(ctx, b.wx, b.wy, b.bp, frame, s, camScale);
         } else {
           const aiImg = getAIImage(b.addr, b.customImageUrl);
           if (aiImg) {
@@ -523,7 +1263,6 @@ export default function TownCanvas() {
             const boxH = maxBoxH * fill;
             const aspect = aiImg.naturalWidth / aiImg.naturalHeight;
             let drawW: number, drawH: number;
-            // Fit image within the tier's box while preserving aspect ratio
             if (aspect > boxW / boxH) {
               drawW = boxW;
               drawH = boxW / aspect;
@@ -532,8 +1271,11 @@ export default function TownCanvas() {
               drawW = boxH * aspect;
             }
             ctx.drawImage(aiImg, b.wx - drawW / 2, b.wy - drawH + 4, drawW, drawH);
+          } else {
+            const fill = TIER_FILL[b.tier] ?? 0.5;
+            const s = maxBoxW * fill * 0.75;
+            drawConstructionAnim(ctx, b.wx, b.wy, 95, frame, s, camScale);
           }
-          // No fallback — buildings without AI images are simply not rendered
         }
 
         if (needAlpha) ctx.globalAlpha = 1;
@@ -549,8 +1291,8 @@ export default function TownCanvas() {
 
       }
 
-      // ── 3. PARTICLES ──
-      if (showAnim) {
+      // ── 3. PARTICLES (skip when zoomed out) ──
+      if (showAnim && camScale >= 0.4) {
         for (const p of particles) {
           p.life++;
           p.x += p.vx;
@@ -580,13 +1322,14 @@ export default function TownCanvas() {
       syncFromStore();
       frame++;
       const idle = !dragging && (performance.now() - lastInteractTime > INTERACT_COOLDOWN);
-      if (idle) dirty = true;
+      if ((idle && frame % 2 === 0) || isStaging) dirty = true;
       if (dirty) { dirty = false; draw(); }
     }
     rafId = requestAnimationFrame(loop);
 
     // ── CLEANUP ──
     return () => {
+      if (revealTimer) clearInterval(revealTimer);
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
       canvas.removeEventListener('pointerdown', onPointerDown);
