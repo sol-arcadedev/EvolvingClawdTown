@@ -583,11 +583,11 @@ function spawnSmokeParticle(): SmokeParticle {
     x: (Math.random() - 0.5) * 12,
     y: 0,
     vx: (Math.random() - 0.5) * 0.3,
-    vy: -(0.5 + Math.random() * 0.5),
+    vy: -(0.8 + Math.random() * 0.7),
     size: 3 + Math.random() * 3,
-    alpha: 0.4 + Math.random() * 0.2,
-    life: Math.floor(Math.random() * 120), // stagger initial spawns
-    maxLife: 120 + Math.floor(Math.random() * 80),
+    alpha: 0.6 + Math.random() * 0.3,
+    life: Math.floor(Math.random() * 400), // stagger initial spawns
+    maxLife: 500 + Math.floor(Math.random() * 200),
   };
 }
 
@@ -595,11 +595,11 @@ function resetSmokeParticle(p: SmokeParticle) {
   p.x = (Math.random() - 0.5) * 12;
   p.y = 0;
   p.vx = (Math.random() - 0.5) * 0.3;
-  p.vy = -(0.5 + Math.random() * 0.5);
+  p.vy = -(0.8 + Math.random() * 0.7);
   p.size = 3 + Math.random() * 3;
-  p.alpha = 0.4 + Math.random() * 0.2;
+  p.alpha = 0.6 + Math.random() * 0.3;
   p.life = 0;
-  p.maxLife = 120 + Math.floor(Math.random() * 80);
+  p.maxLife = 500 + Math.floor(Math.random() * 200);
 }
 
 
@@ -1483,7 +1483,7 @@ export default function TownCanvas() {
 
                 const t = p.life / p.maxLife; // 0→1
                 const fadeAlpha = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8; // fade in then out
-                const gray = Math.floor(100 + t * 80); // dark→light gray
+                const gray = Math.floor(30 + t * 50); // near-black → dark gray
 
                 ctx.beginPath();
                 ctx.arc(sx + p.x, sy - s * 0.6 + p.y, p.size, 0, Math.PI * 2);
