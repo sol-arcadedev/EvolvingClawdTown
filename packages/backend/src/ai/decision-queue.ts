@@ -66,8 +66,11 @@ class AsyncMutex {
 // town placement serialized after). Higher = faster throughput during surges.
 const BATCH_SIZE = parseInt(process.env.DECISION_BATCH_SIZE || '5');
 
-// When the queue depth exceeds this, skip image generation to speed up processing.
+// When the queue depth exceeds this, generate images in background instead of inline.
 const IMAGE_DEFER_THRESHOLD = parseInt(process.env.IMAGE_DEFER_THRESHOLD || '10');
+
+// Max concurrent background image generations to avoid overwhelming SD.
+const MAX_BG_IMAGE_WORKERS = parseInt(process.env.MAX_BG_IMAGE_WORKERS || '2');
 
 export class DecisionQueue {
   private queue: DecisionRequest[] = [];
@@ -82,6 +85,9 @@ export class DecisionQueue {
   private deferredImageAddresses: string[] = [];
   /** Mutex for serializing town state mutations (placement) while AI calls run in parallel */
   private placementMutex = new AsyncMutex();
+  /** Background image generation queue and active count */
+  private bgImageQueue: Array<{ address: string; prompt: string; buildingName: string }> = [];
+  private bgImageActive = 0;
 
   constructor(db: DB) {
     this.db = db;
@@ -317,6 +323,70 @@ export class DecisionQueue {
     }
   }
 
+  /** Queue image generation to run in background without blocking AI decisions */
+  private generateImageInBackground(address: string, prompt: string, buildingName: string): void {
+    this.bgImageQueue.push({ address, prompt, buildingName });
+    this.pumpBgImageQueue();
+  }
+
+  /** Process background image queue with concurrency limit */
+  private pumpBgImageQueue(): void {
+    while (this.bgImageActive < MAX_BG_IMAGE_WORKERS && this.bgImageQueue.length > 0) {
+      const item = this.bgImageQueue.shift()!;
+      this.bgImageActive++;
+      this.processBgImage(item.address, item.prompt, item.buildingName)
+        .finally(() => {
+          this.bgImageActive--;
+          this.pumpBgImageQueue();
+        });
+    }
+  }
+
+  private async processBgImage(address: string, prompt: string, buildingName: string): Promise<void> {
+    try {
+      const imageUrl = await generateBuildingImage(prompt, address);
+      if (imageUrl) {
+        await this.db.updateWalletAI(address, {
+          custom_image_url: imageUrl,
+          image_generated_at: new Date(),
+        });
+        log.info(`Background image generated for ${address.slice(0, 8)}...`);
+
+        // Notify frontend of the new image
+        if (this.onDecision) {
+          const wallet = await this.db.getWallet(address);
+          this.onDecision({
+            walletAddress: address,
+            eventType: 'buy',
+            decision: {
+              building_name: buildingName,
+              architectural_style: wallet?.architectural_style || '',
+              clawd_comment: '',
+              image_prompt: prompt,
+              description: '',
+              evolution_hint: '',
+            },
+            imageUrl,
+            holderProfile: {
+              walletAddress: address.slice(0, 4) + '...' + address.slice(-4),
+              tier: wallet?.house_tier ?? 1,
+              supplyPercent: 0,
+              eventType: 'buy',
+              tradingPersonality: '',
+              behaviorPattern: '',
+              behaviorTheme: '',
+              tradeStats: { buys: 0, sells: 0, volume: 0 },
+              isNewHolder: false,
+              existingBuildingName: buildingName,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      log.error(`Background image generation failed for ${address.slice(0, 8)}...:`, err);
+    }
+  }
+
   private async processDecision(request: DecisionRequest): Promise<void> {
     const { walletAddress, eventType, isNewHolder, walletRow, totalSupply, tokenAmountDelta } = request;
     const isClawdHQ = walletAddress === CLAWD_HQ_ADDRESS;
@@ -403,15 +473,15 @@ export class DecisionQueue {
     // Stage 5: Verdict
     this.pushProgress(`> Verdict: "${decision.building_name}" (${decision.architectural_style})`);
 
-    // Generate image — skip during surge to keep throughput high
+    // Generate image — during surge, fire in background without blocking the queue
     let imageUrl: string | null = null;
     const surgeMode = this.queue.length >= IMAGE_DEFER_THRESHOLD;
     if (isImageGenEnabled() && !surgeMode) {
       this.pushProgress(`> Rendering building image...`);
       imageUrl = await generateBuildingImage(decision.image_prompt, walletAddress);
     } else if (isImageGenEnabled() && surgeMode) {
-      this.pushProgress(`> Image deferred (queue: ${this.queue.length}) — will render when queue drains`);
-      this.deferredImageAddresses.push(walletAddress);
+      this.pushProgress(`> Image queued in background (queue: ${this.queue.length})`);
+      this.generateImageInBackground(walletAddress, decision.image_prompt, decision.building_name);
     }
 
     // Town planning — place building on tilemap (serialized via mutex)
