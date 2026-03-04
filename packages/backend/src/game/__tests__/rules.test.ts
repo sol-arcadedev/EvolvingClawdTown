@@ -177,6 +177,7 @@ describe('colorHueFromAddress', () => {
 
   it('handles empty string', () => {
     const hue = colorHueFromAddress('');
-    expect(hue).toBe(0);
+    // hash=0, pos=0 → first cyber band [170,210] → 170
+    expect(hue).toBe(170);
   });
 });
