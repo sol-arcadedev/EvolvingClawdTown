@@ -554,7 +554,7 @@ async function main() {
           `dmg=${result.walletState.damage_pct}%`
       );
 
-      // Broadcast burn event if wallet sold all tokens
+      // Broadcast burn event if wallet sold all tokens (finished building)
       if (result.burned) {
         wsServer.broadcastMessage({
           type: 'wallet_burned',
@@ -565,6 +565,11 @@ async function main() {
         });
         wsServer.broadcastTilemapUpdate();
         wsServer.pushConsoleLine(`> 🔥 ${event.walletAddress.slice(0, 8)}... sold everything! House burning down...`);
+        _scheduleTilemapSave?.();
+      } else if (result.plotCleared) {
+        // Under-construction building — silently free the plot (no fire, no ruin)
+        wsServer.broadcastTilemapUpdate();
+        wsServer.pushConsoleLine(`> 🧹 ${event.walletAddress.slice(0, 8)}... sold everything — construction site cleared`);
         _scheduleTilemapSave?.();
       }
 

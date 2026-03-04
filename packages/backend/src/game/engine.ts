@@ -34,6 +34,7 @@ export interface ProcessedUpdate {
   event: GameEvent;
   isNew: boolean;
   burned?: boolean;
+  plotCleared?: boolean;
   burnedPlotX?: number;
   burnedPlotY?: number;
   burnedAt?: number;
@@ -243,33 +244,44 @@ export class GameEngine {
       }
     }
 
-    // Zero balance — destroyed (tier 0), create ruin
+    // Zero balance — destroyed (tier 0)
     let burned = false;
+    let plotCleared = false;
     let burnedPlotX = 0, burnedPlotY = 0;
     let burnedAt = 0;
     if (event.newBalance <= 0n) {
+      // Check build progress BEFORE resetting — determines burn vs silent clear
+      const wasFinished = parseFloat(wallet.build_progress) >= 100;
+
       houseTier = 0;
       buildProgress = 0;
       damagePct = 0;
       buildSpeedMult = 1;
       boostExpiresAt = null;
 
-      // Capture plot position before clearing, create a permanent ruin
+      // Free the plot if one exists
       if (wallet.plot_x > 0 || wallet.plot_y > 0) {
         burnedPlotX = wallet.plot_x;
         burnedPlotY = wallet.plot_y;
-        burnedAt = Date.now();
-        burned = true;
+        plotCleared = true;
+
+        if (wasFinished) {
+          // Finished building — burn it down with fire + permanent ruin
+          burnedAt = Date.now();
+          burned = true;
+
+          if (this.townState) {
+            addRuin(this.townState, {
+              plotX: burnedPlotX,
+              plotY: burnedPlotY,
+              burnedAt,
+              formerOwner: event.walletAddress,
+            });
+          }
+        }
 
         if (this.townState) {
-          addRuin(this.townState, {
-            plotX: burnedPlotX,
-            plotY: burnedPlotY,
-            burnedAt,
-            formerOwner: event.walletAddress,
-          });
-
-          // Free the plot so it becomes a ruin (remove building, mark unoccupied)
+          // Free the plot (remove building, mark unoccupied) — both burn and silent clear
           const plotId = `p_${burnedPlotX}_${burnedPlotY}`;
           const plot = this.townState.plots.get(plotId);
           if (plot && plot.occupied) {
@@ -313,6 +325,7 @@ export class GameEngine {
       event,
       isNew,
       burned,
+      plotCleared,
       burnedPlotX,
       burnedPlotY,
       burnedAt,
