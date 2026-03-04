@@ -270,6 +270,76 @@ describe('GameEngine.processEvent', () => {
       expect(result!.walletState.build_speed_mult).toBe(1);
       expect(result!.walletState.boost_expires_at).toBeNull();
     });
+
+    it('burns finished building (build_progress >= 100) on zero balance', async () => {
+      const wallet = makeWalletRow({
+        build_progress: '100.00',
+        plot_x: 5,
+        plot_y: 10,
+      });
+      const db = createMockDB(wallet);
+      const engine = new GameEngine(db);
+
+      const event = makeEvent({
+        type: 'sell',
+        tokenAmountDelta: -1000000n,
+        previousBalance: 1000000n,
+        newBalance: 0n,
+      });
+
+      const result = await engine.processEvent(event);
+
+      expect(result!.burned).toBe(true);
+      expect(result!.plotCleared).toBe(true);
+      expect(result!.burnedPlotX).toBe(5);
+      expect(result!.burnedPlotY).toBe(10);
+      expect(result!.burnedAt).toBeGreaterThan(0);
+    });
+
+    it('silently clears under-construction building (build_progress < 100) on zero balance', async () => {
+      const wallet = makeWalletRow({
+        build_progress: '50.00',
+        plot_x: 5,
+        plot_y: 10,
+      });
+      const db = createMockDB(wallet);
+      const engine = new GameEngine(db);
+
+      const event = makeEvent({
+        type: 'sell',
+        tokenAmountDelta: -1000000n,
+        previousBalance: 1000000n,
+        newBalance: 0n,
+      });
+
+      const result = await engine.processEvent(event);
+
+      expect(result!.burned).toBe(false);
+      expect(result!.plotCleared).toBe(true);
+      expect(result!.burnedAt).toBe(0);
+    });
+
+    it('does not set plotCleared when wallet has no plot', async () => {
+      const wallet = makeWalletRow({
+        build_progress: '50.00',
+        plot_x: 0,
+        plot_y: 0,
+      });
+      const db = createMockDB(wallet);
+      const engine = new GameEngine(db);
+
+      const event = makeEvent({
+        type: 'sell',
+        tokenAmountDelta: -1000000n,
+        previousBalance: 1000000n,
+        newBalance: 0n,
+      });
+
+      const result = await engine.processEvent(event);
+
+      expect(result!.burned).toBe(false);
+      expect(result!.plotCleared).toBe(false);
+    });
   });
 });
 
