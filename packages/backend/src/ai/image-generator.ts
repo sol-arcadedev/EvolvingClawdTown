@@ -22,14 +22,14 @@ const googleAuth = new GoogleAuth({
 });
 
 // LoRA triggers for SD (pixel art isometric style)
-const STYLE_SUFFIX = '<lora:isometric_game_assets:0.8> <lora:Isometric_Setting:0.9> <lora:white_background:3.0> pixel art, isometric pixel art building, 16-bit style, retro game sprite, clean flat shading, bold outlines, 45 degree isometric top-down 3/4 view, single building centered, plain solid white background, game asset sprite, isolated building on white';
-const NEGATIVE_PROMPT = 'realistic, photorealistic, 3d render, photograph, cinema, film, ray tracing, pbr, reflection, specular, subsurface, cartoon, anime, sketch, drawing, painting, watercolor, clipart, interior view, cutaway, cross-section, furniture, object, character, creature, person, abstract, sculpture, blurry, low quality, text, watermark, multiple buildings, front view, side view, eye level, first person, close-up, cropped, zoomed in, low angle, high angle, bird eye view, sky, clouds, landscape, scenery, people, ground, floor, terrain, grass, trees, bushes, flowers, garden, water, rocks, hill, mountain, forest, nature, environment, surroundings';
+const STYLE_SUFFIX = '<lora:pixelartredmond-1-5v:0.8> <lora:Isometric_Setting:0.5> <lora:white_background:3.0> (simple white background:1.8), rpg game sprite icon, isometric pixel art, single game asset, centered, vibrant colorful building, warm sunny village style, (no environment:1.3), (blank background:1.4)';
+const NEGATIVE_PROMPT = '(trees:1.5), (grass:1.5), (ground:1.4), (garden:1.4), (flowers:1.4), (sky:1.4), (clouds:1.4), (environment:1.4), (scenery:1.4), (landscape:1.4), (nature:1.3), tree, palm, plant, bush, flower, fence, yard, terrain, dirt, path, road, floor, rock, stone ground, water, people, person, character, text, watermark, multiple buildings, large building, tall building, shadow, dark, gloomy, neon, modern, glass, steel, complex, detailed background, village, town, street, scene, outdoor, field, meadow, forest, hill, mountain, river, lake, ocean, rain, snow, night, sunset, sunrise, horizon, 3d render, realistic, photorealistic, photograph, painting, anime, voxel';
 
 const SD_SETTINGS = {
   width: 512,
   height: 512,
-  steps: 28,
-  cfg_scale: 9,
+  steps: 30,
+  cfg_scale: 12,
   sampler_name: 'DPM++ 2M Karras',
 };
 
@@ -174,8 +174,8 @@ async function validateImageTransparency(imageBuffer: Buffer): Promise<{ pass: b
 }
 
 // Imagen 3 prompt style (no LoRA triggers or negative prompts needed)
-const IMAGEN_STYLE_SUFFIX = 'isometric pixel art game sprite, 16-bit retro style like SimCity 2000 or Age of Empires, clean flat colors, dark outlines, viewed from exactly 45-degree top-down 3/4 isometric angle showing front and right side of building, single isolated building centered in frame, square image, building occupies center 70% of image, pure white background, no ground plane, no grass, no platform, no base, no terrain, no environment, no trees, no people, no text, no shadows on ground';
-const IMAGEN_RETRY_BOOST = ', completely isolated floating pixel art building, nothing else in the image, pure white empty background, exact 45-degree isometric top-down view showing two faces of the building';
+const IMAGEN_STYLE_SUFFIX = 'charming pixel art building, isometric 32x32 game tile sprite, seen from above at 45 degree angle showing roof and two walls, warm colorful cozy village style, vibrant saturated colors, each building unique and distinct, clean flat pixel shading, miniature scale, centered on pure white background, isolated floating building, no ground, no environment, no shadows, NOT front view, NOT side view';
+const IMAGEN_RETRY_BOOST = ', strictly isometric top-down 3/4 view showing roof and two wall faces, tiny miniature house, pixel art game asset on pure white background';
 
 const MAX_IMAGE_ATTEMPTS = 3;
 const RETRY_PROMPT_BOOST = ', completely isolated floating building, absolutely nothing else in the image';

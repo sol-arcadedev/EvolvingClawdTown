@@ -569,25 +569,29 @@ export class DB {
   async saveTilemap(state: {
     map: { width: number; height: number; tiles: Array<{ terrain: number; elevation: number; district: number; road: number; buildingId: number; tags: number; clusterId: number }> };
     plots: Map<string, any>;
+    ruins?: Array<{ plotX: number; plotY: number; burnedAt: number; formerOwner: string }>;
   }): Promise<void> {
     const { map, plots } = state;
     const { width, height, tiles } = map;
 
-    // Serialize: 7 bytes per tile (terrain, elevation, district, road, buildingId x2, tags)
-    const raw = Buffer.alloc(tiles.length * 7);
+    // Serialize: 8 bytes per tile (terrain, elevation, district, road, buildingId x2, tags, clusterId)
+    const raw = Buffer.alloc(tiles.length * 8);
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
-      const off = i * 7;
+      const off = i * 8;
       raw[off] = t.terrain & 0xff;
       raw[off + 1] = t.elevation & 0xff;
       raw[off + 2] = t.district & 0xff;
       raw[off + 3] = t.road & 0xff;
       raw.writeUInt16LE(t.buildingId & 0xffff, off + 4);
       raw[off + 6] = t.tags & 0xff;
+      raw[off + 7] = (t.clusterId > 0 ? t.clusterId : 0) & 0xff;
     }
 
     const tileData = zlib.gzipSync(raw);
     const plotsArr = Array.from(plots.values());
+    // Store plots and ruins together in plots_json (backwards-compatible)
+    const plotsData = { plots: plotsArr, ruins: state.ruins || [] };
 
     await this.pool.query(
       `INSERT INTO town_tilemap (id, width, height, tile_data, plots_json, version, updated_at)
@@ -599,7 +603,7 @@ export class DB {
          plots_json = EXCLUDED.plots_json,
          version = town_tilemap.version + 1,
          updated_at = NOW()`,
-      [width, height, tileData, JSON.stringify(plotsArr)]
+      [width, height, tileData, JSON.stringify(plotsData)]
     );
   }
 
@@ -608,6 +612,7 @@ export class DB {
     height: number;
     tiles: Array<{ terrain: number; elevation: number; district: number; road: number; buildingId: number; tags: number; clusterId: number }>;
     plots: Array<any>;
+    ruins: Array<{ plotX: number; plotY: number; burnedAt: number; formerOwner: string }>;
     version: number;
   } | null> {
     const { rows } = await this.pool.query<{
@@ -625,8 +630,11 @@ export class DB {
     const tileCount = row.width * row.height;
     const tiles = new Array(tileCount);
 
+    // Detect format: 8 bytes/tile (new, includes clusterId) vs 7 bytes/tile (old)
+    const bytesPerTile = raw.length / tileCount >= 8 ? 8 : 7;
+
     for (let i = 0; i < tileCount; i++) {
-      const off = i * 7;
+      const off = i * bytesPerTile;
       tiles[i] = {
         terrain: raw[off],
         elevation: raw[off + 1],
@@ -634,15 +642,22 @@ export class DB {
         road: raw[off + 3],
         buildingId: raw.readUInt16LE(off + 4),
         tags: raw[off + 6],
-        clusterId: -1,
+        clusterId: bytesPerTile >= 8 ? raw[off + 7] : 0,
       };
     }
+
+    // Backwards-compatible: plots_json may be an array (old format) or { plots, ruins } (new format)
+    const plotsJson = row.plots_json || [];
+    const isNewFormat = plotsJson && !Array.isArray(plotsJson) && plotsJson.plots;
+    const plots = isNewFormat ? plotsJson.plots : plotsJson;
+    const ruins = isNewFormat ? (plotsJson.ruins || []) : [];
 
     return {
       width: row.width,
       height: row.height,
       tiles,
-      plots: row.plots_json || [],
+      plots,
+      ruins,
       version: row.version,
     };
   }

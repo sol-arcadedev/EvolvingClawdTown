@@ -159,6 +159,10 @@ export function generateSmallIsland(width: number, height: number): TownMap {
   const cx = Math.floor(width / 2);
   const cy = Math.floor(height / 2);
 
+  // Water ring extends 12 tiles beyond land edge
+  const LAND_RADIUS = 14;
+  const WATER_RADIUS = LAND_RADIUS + 12;
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
@@ -178,14 +182,18 @@ export function generateSmallIsland(width: number, height: number): TownMap {
         // Moat ring — water
         terrain = TERRAIN_WATER;
         elevation = 40;
-      } else if (dist <= 14) {
+      } else if (dist <= LAND_RADIUS) {
         // Town land — gentle variation
         terrain = TERRAIN_LAND;
-        elevation = 100 + Math.floor((14 - dist) / 10 * 20); // 100-120
-      } else {
-        // Ocean — void
+        elevation = 100 + Math.floor((LAND_RADIUS - dist) / 10 * 20); // 100-120
+      } else if (dist <= WATER_RADIUS) {
+        // Ocean ring — visible water
         terrain = TERRAIN_WATER;
         elevation = 20;
+      } else {
+        // Void — invisible (elevation=0 signals "don't render")
+        terrain = TERRAIN_WATER;
+        elevation = 0;
       }
 
       tiles[idx] = {

@@ -48,13 +48,23 @@ export interface TownDecoration {
   type: number; // 1=tree, 2=bush, 3=rock, 4=fountain, 5=bench
 }
 
+export interface TownRuin {
+  x: number;
+  y: number;
+  burnedAt: number;
+  formerOwner: string;
+}
+
 export interface TownSnapshotMeta {
   width: number;
   height: number;
   buildings: TownBuilding[];
   decorations?: TownDecoration[];
+  ruins?: TownRuin[];
   seed: number;
   tilemapSize: number;
+  reseedAt?: number;   // server timestamp (ms) of last reseed
+  serverTime?: number; // server's Date.now() when snapshot was sent
 }
 
 export type WsMessage =
@@ -65,10 +75,12 @@ export type WsMessage =
   | { type: 'console_line'; line: string }
   | { type: 'clawd_decision'; walletAddress: string; buildingName: string; architecturalStyle: string; clawdComment: string }
   | { type: 'building_image_update'; walletAddress: string; imageUrl: string; buildingName: string }
-  | { type: 'town_snapshot'; width: number; height: number; buildings: TownBuilding[]; decorations?: TownDecoration[]; seed: number; tilemapSize: number }
+  | { type: 'town_snapshot'; width: number; height: number; buildings: TownBuilding[]; decorations?: TownDecoration[]; ruins?: TownRuin[]; seed: number; tilemapSize: number; reseedAt?: number; serverTime?: number }
   | { type: 'building_placed'; [key: string]: any }
   | { type: 'road_added'; [key: string]: any }
-  | { type: 'district_grown'; [key: string]: any };
+  | { type: 'district_grown'; [key: string]: any }
+  | { type: 'wallet_burned'; address: string; plotX: number; plotY: number; burnedAt: number }
+  | { type: 'force_refresh' };
 
 export interface SpriteConfig {
   base: string;

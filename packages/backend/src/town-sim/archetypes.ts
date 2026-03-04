@@ -7,7 +7,7 @@ import {
   DISTRICT_PARK, DISTRICT_HARBOR,
 } from './types';
 
-const ISO_STYLE = 'isometric 2.5d pixel art, sunny lighting, game tileset, no background, transparent background';
+const ISO_STYLE = '(single object on white background:1.3), isometric pixel art building, colorful roof, game sprite';
 
 export const ARCHETYPES: BuildingArchetype[] = [
   // ── Residential Low ──
@@ -18,7 +18,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_RESIDENTIAL_LOW],
     densityClass: 'low',
-    sdPromptTemplate: `${ISO_STYLE}, small cozy wooden house, thatched roof, garden path`,
+    sdPromptTemplate: `${ISO_STYLE}, tiny wooden house with red roof`,
     sdStyleTags: ['pixel art', 'isometric', 'cozy'],
   },
   {
@@ -28,7 +28,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_RESIDENTIAL_LOW],
     densityClass: 'low',
-    sdPromptTemplate: `${ISO_STYLE}, stone cottage, chimney, flower box windows`,
+    sdPromptTemplate: `${ISO_STYLE}, small stone cottage with orange roof`,
     sdStyleTags: ['pixel art', 'isometric', 'rustic'],
   },
 
@@ -40,7 +40,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 3,
     allowedDistricts: [DISTRICT_RESIDENTIAL_HIGH],
     densityClass: 'high',
-    sdPromptTemplate: `${ISO_STYLE}, modern apartment building, balconies, glass and concrete`,
+    sdPromptTemplate: `${ISO_STYLE}, small brick building with green roof`,
     sdStyleTags: ['pixel art', 'isometric', 'urban'],
   },
   {
@@ -50,7 +50,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 2,
     allowedDistricts: [DISTRICT_RESIDENTIAL_HIGH, DISTRICT_RESIDENTIAL_LOW],
     densityClass: 'medium',
-    sdPromptTemplate: `${ISO_STYLE}, row of townhouses, varied colored doors, brick facade`,
+    sdPromptTemplate: `${ISO_STYLE}, small brick townhouse with yellow roof`,
     sdStyleTags: ['pixel art', 'isometric', 'residential'],
   },
 
@@ -62,7 +62,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_COMMERCIAL],
     densityClass: 'medium',
-    sdPromptTemplate: `${ISO_STYLE}, row of small shops, colorful awnings, market street`,
+    sdPromptTemplate: `${ISO_STYLE}, tiny shop with colorful awning and red roof`,
     sdStyleTags: ['pixel art', 'isometric', 'commercial'],
   },
   {
@@ -72,7 +72,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 4,
     allowedDistricts: [DISTRICT_COMMERCIAL, DISTRICT_CIVIC],
     densityClass: 'high',
-    sdPromptTemplate: `${ISO_STYLE}, modern glass office tower, reflective windows, rooftop garden`,
+    sdPromptTemplate: `${ISO_STYLE}, small brick office with terracotta roof`,
     sdStyleTags: ['pixel art', 'isometric', 'corporate'],
   },
 
@@ -84,7 +84,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 2,
     allowedDistricts: [DISTRICT_INDUSTRIAL],
     densityClass: 'high',
-    sdPromptTemplate: `${ISO_STYLE}, industrial factory, smokestacks, loading dock`,
+    sdPromptTemplate: `${ISO_STYLE}, small wooden workshop with green roof and chimney`,
     sdStyleTags: ['pixel art', 'isometric', 'industrial'],
   },
   {
@@ -94,7 +94,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_INDUSTRIAL, DISTRICT_HARBOR],
     densityClass: 'medium',
-    sdPromptTemplate: `${ISO_STYLE}, corrugated metal warehouse, roller doors`,
+    sdPromptTemplate: `${ISO_STYLE}, small wooden barn with brown roof`,
     sdStyleTags: ['pixel art', 'isometric', 'industrial'],
   },
 
@@ -106,7 +106,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 2,
     allowedDistricts: [DISTRICT_CIVIC],
     densityClass: 'medium',
-    sdPromptTemplate: `${ISO_STYLE}, grand civic hall, columns, clock tower, marble steps`,
+    sdPromptTemplate: `${ISO_STYLE}, small stone hall with clock and red roof`,
     sdStyleTags: ['pixel art', 'isometric', 'civic'],
   },
 
@@ -118,7 +118,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 0,
     allowedDistricts: [DISTRICT_PARK, DISTRICT_RESIDENTIAL_LOW, DISTRICT_RESIDENTIAL_HIGH],
     densityClass: 'low',
-    sdPromptTemplate: `${ISO_STYLE}, park tile, trees, bench, grass, flower bed`,
+    sdPromptTemplate: `${ISO_STYLE}, tiny garden gazebo with green roof`,
     sdStyleTags: ['pixel art', 'isometric', 'nature'],
   },
 
@@ -130,7 +130,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_HARBOR],
     densityClass: 'medium',
-    sdPromptTemplate: `${ISO_STYLE}, harbor warehouse, wooden dock, cargo crates, seagulls`,
+    sdPromptTemplate: `${ISO_STYLE}, small wooden dock house with blue roof`,
     sdStyleTags: ['pixel art', 'isometric', 'harbor'],
   },
 
@@ -142,7 +142,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_RESIDENTIAL_LOW],
     densityClass: 'low',
-    sdPromptTemplate: `${ISO_STYLE}, tiny ramshackle shack, scrap metal roof, single window`,
+    sdPromptTemplate: `${ISO_STYLE}, tiny wooden shack with red roof`,
     sdStyleTags: ['pixel art', 'isometric', 'humble'],
   },
   {
@@ -152,7 +152,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 1,
     allowedDistricts: [DISTRICT_RESIDENTIAL_LOW, DISTRICT_RESIDENTIAL_HIGH],
     densityClass: 'low',
-    sdPromptTemplate: `${ISO_STYLE}, small neat house, painted walls, pitched roof, garden`,
+    sdPromptTemplate: `${ISO_STYLE}, small painted house with orange roof`,
     sdStyleTags: ['pixel art', 'isometric', 'cozy'],
   },
   {
@@ -162,7 +162,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 2,
     allowedDistricts: [DISTRICT_RESIDENTIAL_HIGH, DISTRICT_COMMERCIAL],
     densityClass: 'medium',
-    sdPromptTemplate: `${ISO_STYLE}, stylish villa, modern design, large windows, terrace`,
+    sdPromptTemplate: `${ISO_STYLE}, small timber house with terracotta roof and chimney`,
     sdStyleTags: ['pixel art', 'isometric', 'upscale'],
   },
   {
@@ -172,7 +172,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 3,
     allowedDistricts: [DISTRICT_RESIDENTIAL_HIGH, DISTRICT_COMMERCIAL],
     densityClass: 'high',
-    sdPromptTemplate: `${ISO_STYLE}, luxury tower, penthouse, glass facade, rooftop pool`,
+    sdPromptTemplate: `${ISO_STYLE}, small stone house with red tile roof and small balcony`,
     sdStyleTags: ['pixel art', 'isometric', 'luxury'],
   },
   {
@@ -182,7 +182,7 @@ export const ARCHETYPES: BuildingArchetype[] = [
     heightLevels: 5,
     allowedDistricts: [DISTRICT_CIVIC, DISTRICT_RESIDENTIAL_HIGH],
     densityClass: 'high',
-    sdPromptTemplate: `${ISO_STYLE}, megastructure skyscraper, landmark building, unique architecture, glowing accents`,
+    sdPromptTemplate: `${ISO_STYLE}, small fancy stone house with colorful detailed roof and turret`,
     sdStyleTags: ['pixel art', 'isometric', 'landmark'],
   },
 ];

@@ -252,7 +252,7 @@ export function createPlots(map: TownMap, rng: PRNG): Map<string, Plot> {
   const used = new Uint8Array(width * height);
 
   // Try larger plots first (3x2, 2x2, 2x1), then 1x1
-  const sizes: [number, number][] = [[3, 2], [2, 2], [2, 1], [1, 1]];
+  const sizes: [number, number][] = [[3, 3]];
 
   for (const [pw, ph] of sizes) {
     for (let y = 0; y < height - ph + 1; y++) {

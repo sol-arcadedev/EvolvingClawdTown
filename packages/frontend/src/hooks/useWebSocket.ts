@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { WsMessage, WalletState, TownSnapshotMeta } from '../types';
-import { useTownStore } from './useTownStore';
+import { useTownStore, addBurningHouse } from './useTownStore';
 
 const INITIAL_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30000;
@@ -113,6 +113,15 @@ export function useWebSocket(url: string) {
           case 'building_image_update':
             useTownStore.getState().applyBuildingImage(msg.walletAddress, msg.imageUrl);
             break;
+          case 'wallet_burned':
+            addBurningHouse(msg.plotX, msg.plotY, msg.burnedAt);
+            useTownStore.getState().addRuin({
+              x: msg.plotX,
+              y: msg.plotY,
+              burnedAt: msg.burnedAt,
+              formerOwner: msg.address,
+            });
+            break;
           case 'town_snapshot':
             // Store metadata, wait for the binary frame that follows
             pendingTownMeta.current = {
@@ -120,9 +129,16 @@ export function useWebSocket(url: string) {
               height: msg.height,
               buildings: msg.buildings,
               decorations: msg.decorations,
+              ruins: msg.ruins,
               seed: msg.seed,
               tilemapSize: msg.tilemapSize,
+              reseedAt: msg.reseedAt,
+              serverTime: msg.serverTime,
             };
+            break;
+          case 'force_refresh':
+            console.log('Server requested page refresh');
+            window.location.reload();
             break;
           case 'building_placed':
           case 'road_added':

@@ -645,6 +645,413 @@ const hedgeTrimmed: SpriteGenerator = (data, rng) => {
   }
 };
 
+// ── MARKET STALL ──
+const marketStall: SpriteGenerator = (data, rng) => {
+  const cx = 32, groundY = 56;
+
+  // Shadow
+  fillEllipse(data, cx, 58, 12, 3, { r: 0, g: 0, b: 0, a: 30 });
+
+  // Counter / table
+  fillRect(data, cx - 10, groundY - 8, 20, 3, { r: 160, g: 100, b: 45, a: 255 });
+  fillRect(data, cx - 10, groundY - 7, 20, 1, { r: 130, g: 80, b: 35, a: 255 });
+
+  // Front panel
+  fillRect(data, cx - 10, groundY - 5, 20, 5, { r: 140, g: 85, b: 38, a: 255 });
+  fillRect(data, cx - 9, groundY - 4, 18, 3, { r: 155, g: 100, b: 50, a: 255 });
+
+  // Support posts
+  fillRect(data, cx - 10, groundY - 22, 2, 22, { r: 100, g: 60, b: 28, a: 255 });
+  fillRect(data, cx + 8, groundY - 22, 2, 22, { r: 100, g: 60, b: 28, a: 255 });
+
+  // Awning / canopy (colorful)
+  const awningColor = rng() < 0.5
+    ? { r: 200, g: 60, b: 50, a: 255 }  // red
+    : { r: 50, g: 130, b: 200, a: 255 }; // blue
+  fillRect(data, cx - 12, groundY - 24, 24, 4, awningColor);
+  fillRect(data, cx - 13, groundY - 23, 26, 2, { ...awningColor, r: awningColor.r + 20, g: awningColor.g + 20, b: awningColor.b + 20 });
+
+  // Stripe on awning
+  for (let x = cx - 12; x < cx + 12; x += 4) {
+    fillRect(data, x, groundY - 24, 2, 4, { r: 255, g: 255, b: 240, a: 120 });
+  }
+
+  // Goods on counter (colored dots)
+  for (let i = 0; i < 4; i++) {
+    const gx = cx - 7 + i * 5;
+    const gy = groundY - 10;
+    const colors = [
+      { r: 220, g: 50, b: 40 }, { r: 240, g: 200, b: 30 },
+      { r: 80, g: 180, b: 60 }, { r: 200, g: 120, b: 40 },
+    ];
+    fillCircle(data, gx, gy, 2, { ...colors[i % colors.length], a: 255 });
+  }
+};
+
+// ── CRATE CLUSTER ──
+const crateCluster: SpriteGenerator = (data, rng) => {
+  const cx = 32, groundY = 56;
+
+  // Shadow
+  fillEllipse(data, cx, 58, 10, 2.5, { r: 0, g: 0, b: 0, a: 25 });
+
+  // Large crate
+  const crateColor = { r: 170, g: 120, b: 60, a: 255 };
+  const crateDark = { r: 140, g: 95, b: 45, a: 255 };
+  fillRect(data, cx - 7, groundY - 12, 12, 12, crateColor);
+  fillRect(data, cx - 7, groundY - 12, 12, 1, crateDark);
+  fillRect(data, cx - 7, groundY - 6, 12, 1, crateDark);
+  fillRect(data, cx - 7, groundY - 12, 1, 12, crateDark);
+  fillRect(data, cx + 4, groundY - 12, 1, 12, crateDark);
+  // Cross planks
+  for (let i = 0; i < 12; i++) {
+    setPixel(data, cx - 7 + i, groundY - 12 + i, crateDark);
+    setPixel(data, cx + 4 - i, groundY - 12 + i, crateDark);
+  }
+
+  // Small crate on top
+  fillRect(data, cx - 3, groundY - 20, 8, 8, { r: 180, g: 130, b: 70, a: 255 });
+  fillRect(data, cx - 3, groundY - 20, 8, 1, crateDark);
+  fillRect(data, cx - 3, groundY - 16, 8, 1, crateDark);
+
+  // Barrel beside
+  for (let y = groundY - 10; y <= groundY; y++) {
+    const bulge = 1 + Math.sin((y - (groundY - 10)) / 10 * Math.PI) * 0.2;
+    const hw = 4 * bulge;
+    for (let x = cx + 8 - hw; x <= cx + 8 + hw; x++) {
+      setPixel(data, Math.round(x), y, { r: 150, g: 95, b: 42, a: 255 });
+    }
+  }
+  // Barrel band
+  fillRect(data, cx + 4, groundY - 7, 8, 1, { r: 110, g: 110, b: 100, a: 255 });
+  fillRect(data, cx + 4, groundY - 3, 8, 1, { r: 110, g: 110, b: 100, a: 255 });
+};
+
+// ── FLOWER GARDEN ──
+const flowerGarden: SpriteGenerator = (data, rng) => {
+  const cx = 32, cy = 50;
+
+  // Dirt patch
+  fillEllipse(data, cx, cy, 12, 6, { r: 120, g: 85, b: 50, a: 255 });
+  fillEllipse(data, cx, cy, 10, 5, { r: 100, g: 70, b: 40, a: 255 });
+
+  // Rows of flowers
+  const flowerColors = [
+    { r: 240, g: 60, b: 80 }, { r: 255, g: 200, b: 50 },
+    { r: 220, g: 80, b: 200 }, { r: 255, g: 140, b: 50 },
+    { r: 100, g: 200, b: 255 },
+  ];
+  for (let row = -3; row <= 3; row += 2) {
+    for (let col = -4; col <= 4; col += 2) {
+      const fx = cx + col * 2 + (rng() - 0.5) * 2;
+      const fy = cy + row * 1.5 + (rng() - 0.5);
+      // Stem
+      setPixel(data, Math.round(fx), Math.round(fy + 1), { r: 50, g: 120, b: 40, a: 255 });
+      setPixel(data, Math.round(fx), Math.round(fy + 2), { r: 50, g: 120, b: 40, a: 255 });
+      // Flower head
+      const fc = flowerColors[Math.floor(rng() * flowerColors.length)];
+      fillCircle(data, fx, fy, 1.5, { ...fc, a: 255 });
+      setPixel(data, Math.round(fx), Math.round(fy), { r: 255, g: 255, b: 200, a: 200 });
+    }
+  }
+
+  // Border stones
+  for (let angle = 0; angle < Math.PI * 2; angle += 0.35) {
+    const bx = cx + Math.cos(angle) * 11;
+    const by = cy + Math.sin(angle) * 5.5;
+    fillCircle(data, bx, by, 1.2, { r: 160, g: 155, b: 140, a: 200 });
+  }
+};
+
+// ── LAMP POST ──
+const lampPost: SpriteGenerator = (data, rng) => {
+  const cx = 32, groundY = 56;
+
+  // Shadow
+  fillEllipse(data, cx, 58, 5, 1.5, { r: 0, g: 0, b: 0, a: 25 });
+
+  // Base
+  fillRect(data, cx - 3, groundY - 2, 6, 2, { r: 60, g: 60, b: 65, a: 255 });
+
+  // Pole
+  const poleColor = { r: 70, g: 70, b: 75, a: 255 };
+  fillRect(data, cx - 1, groundY - 28, 2, 26, poleColor);
+  fillRect(data, cx, groundY - 28, 1, 26, { r: 90, g: 90, b: 95, a: 255 }); // highlight
+
+  // Lamp housing
+  fillRect(data, cx - 3, groundY - 32, 6, 4, { r: 50, g: 50, b: 55, a: 255 });
+  fillRect(data, cx - 4, groundY - 33, 8, 2, { r: 60, g: 60, b: 65, a: 255 });
+
+  // Glowing light
+  fillCircle(data, cx, groundY - 30, 2.5, { r: 255, g: 230, b: 150, a: 255 });
+  fillCircle(data, cx, groundY - 30, 4, { r: 255, g: 220, b: 100, a: 60 }); // glow
+  fillCircle(data, cx, groundY - 30, 6, { r: 255, g: 200, b: 80, a: 25 }); // outer glow
+};
+
+// ── HAY BALE ──
+const hayBale: SpriteGenerator = (data, rng) => {
+  const cx = 32, cy = 50;
+
+  // Shadow
+  fillEllipse(data, cx, 56, 10, 2.5, { r: 0, g: 0, b: 0, a: 25 });
+
+  // Round bale
+  fillEllipse(data, cx, cy, 9, 6, { r: 200, g: 170, b: 80, a: 255 });
+  fillEllipse(data, cx - 1, cy - 1, 8, 5, { r: 220, g: 190, b: 95, a: 255 });
+
+  // Spiral pattern (concentric lines)
+  for (let r = 2; r < 7; r += 2) {
+    for (let angle = 0; angle < Math.PI * 2; angle += 0.2) {
+      const hx = cx + Math.cos(angle) * r * 0.9;
+      const hy = cy + Math.sin(angle) * r * 0.6;
+      setPixel(data, Math.round(hx), Math.round(hy), { r: 180, g: 150, b: 65, a: 120 });
+    }
+  }
+
+  // Straw wisps on top
+  for (let i = 0; i < 5; i++) {
+    const sx = cx + (rng() - 0.5) * 14;
+    const sy = cy - 5 + rng() * 2;
+    setPixel(data, Math.round(sx), Math.round(sy), { r: 230, g: 200, b: 100, a: 200 });
+    setPixel(data, Math.round(sx + 1), Math.round(sy - 1), { r: 230, g: 200, b: 100, a: 150 });
+  }
+
+  // Small bale beside
+  fillEllipse(data, cx + 10, cy + 2, 5, 4, { r: 190, g: 160, b: 75, a: 255 });
+  fillEllipse(data, cx + 10, cy + 1, 4, 3, { r: 210, g: 180, b: 90, a: 255 });
+};
+
+// ── WAGON / CART ──
+const wagonCart: SpriteGenerator = (data, rng) => {
+  const cx = 32, groundY = 54;
+
+  // Shadow
+  fillEllipse(data, cx, 58, 14, 3, { r: 0, g: 0, b: 0, a: 25 });
+
+  // Wheels
+  const wheelColor = { r: 90, g: 55, b: 25, a: 255 };
+  // Left wheel
+  for (let angle = 0; angle < Math.PI * 2; angle += 0.3) {
+    const wx = cx - 10 + Math.cos(angle) * 4;
+    const wy = groundY - 3 + Math.sin(angle) * 4;
+    setPixel(data, Math.round(wx), Math.round(wy), wheelColor);
+  }
+  fillCircle(data, cx - 10, groundY - 3, 1, wheelColor);
+  // Right wheel
+  for (let angle = 0; angle < Math.PI * 2; angle += 0.3) {
+    const wx = cx + 10 + Math.cos(angle) * 4;
+    const wy = groundY - 3 + Math.sin(angle) * 4;
+    setPixel(data, Math.round(wx), Math.round(wy), wheelColor);
+  }
+  fillCircle(data, cx + 10, groundY - 3, 1, wheelColor);
+
+  // Cart body
+  const bodyColor = { r: 160, g: 100, b: 40, a: 255 };
+  fillRect(data, cx - 12, groundY - 14, 24, 8, bodyColor);
+  fillRect(data, cx - 12, groundY - 14, 24, 1, { r: 130, g: 78, b: 30, a: 255 });
+  fillRect(data, cx - 12, groundY - 7, 24, 1, { r: 130, g: 78, b: 30, a: 255 });
+
+  // Side walls
+  fillRect(data, cx - 12, groundY - 18, 1, 10, bodyColor);
+  fillRect(data, cx + 11, groundY - 18, 1, 10, bodyColor);
+  fillRect(data, cx - 12, groundY - 18, 24, 2, { r: 140, g: 85, b: 35, a: 255 });
+
+  // Handle/tongue
+  fillRect(data, cx - 18, groundY - 10, 6, 2, { r: 110, g: 70, b: 30, a: 255 });
+
+  // Cargo (colored lumps)
+  fillCircle(data, cx - 4, groundY - 16, 3, { r: 200, g: 160, b: 60, a: 255 });
+  fillCircle(data, cx + 3, groundY - 17, 3.5, { r: 180, g: 140, b: 50, a: 255 });
+  fillCircle(data, cx + 1, groundY - 20, 2.5, { r: 210, g: 170, b: 70, a: 255 });
+};
+
+// ── BIRD GENERATORS ──
+// Simple V-shape silhouettes for flap animation (dark against sky)
+
+function makeBirdGenerator(wingUp: boolean, variant: number): SpriteGenerator {
+  return (data, rng) => {
+    const cx = 32, cy = 32;
+    const bodyColor: RGBA = variant === 0
+      ? { r: 30, g: 30, b: 35, a: 255 }        // dark silhouette
+      : variant === 1
+        ? { r: 50, g: 35, b: 25, a: 255 }       // brown
+        : { r: 25, g: 25, b: 45, a: 255 };       // dark blue
+
+    // Body dot
+    fillCircle(data, cx, cy, 2, bodyColor);
+
+    // Wings — two angled lines from center
+    const wingLen = 8 + variant;
+    const wingAngle = wingUp ? -0.45 : 0.3; // radians from horizontal
+
+    for (let side = -1; side <= 1; side += 2) {
+      for (let t = 0; t <= wingLen; t++) {
+        const px = cx + side * t;
+        const py = cy + t * wingAngle * side * (side < 0 ? -1 : 1);
+        // Thicker near body, thin at tip
+        const thickness = t < wingLen * 0.5 ? 1.5 : 0.8;
+        fillCircle(data, px, py, thickness, bodyColor);
+      }
+    }
+
+    // Slight highlight on body
+    setPixel(data, cx, cy - 1, { r: bodyColor.r + 40, g: bodyColor.g + 40, b: bodyColor.b + 40, a: 200 });
+  };
+}
+
+// ── BURNED HOUSE ──
+const burnedHouse: SpriteGenerator = (data, rng) => {
+  const cx = 32, groundY = 56;
+
+  // Shadow
+  fillEllipse(data, cx, 58, 12, 3, { r: 0, g: 0, b: 0, a: 40 });
+
+  // Charred foundation
+  fillRect(data, cx - 12, groundY - 4, 24, 4, { r: 50, g: 40, b: 35, a: 255 });
+  fillRect(data, cx - 11, groundY - 3, 22, 2, { r: 60, g: 48, b: 40, a: 255 });
+
+  // Left wall fragment (partially collapsed)
+  for (let y = groundY - 18; y <= groundY - 4; y++) {
+    const wallH = groundY - 4 - y;
+    const collapse = rng() * 3;
+    for (let x = cx - 11; x < cx - 5 + collapse; x++) {
+      const shade = 0.6 + rng() * 0.3;
+      setPixel(data, Math.round(x), y, {
+        r: clamp(Math.round(55 * shade), 0, 255),
+        g: clamp(Math.round(42 * shade), 0, 255),
+        b: clamp(Math.round(35 * shade), 0, 255),
+        a: wallH > 10 ? 180 : 255,
+      });
+    }
+  }
+
+  // Right wall fragment (shorter, more collapsed)
+  for (let y = groundY - 12; y <= groundY - 4; y++) {
+    for (let x = cx + 4; x < cx + 11; x++) {
+      const shade = 0.5 + rng() * 0.35;
+      setPixel(data, Math.round(x), y, {
+        r: clamp(Math.round(50 * shade), 0, 255),
+        g: clamp(Math.round(38 * shade), 0, 255),
+        b: clamp(Math.round(30 * shade), 0, 255),
+        a: 255,
+      });
+    }
+  }
+
+  // Collapsed roof beams (angled dark lines)
+  for (let t = 0; t < 8; t++) {
+    const bx = cx - 8 + t * 2.5;
+    const by = groundY - 14 - rng() * 6;
+    const len = 4 + rng() * 6;
+    for (let i = 0; i < len; i++) {
+      setPixel(data, Math.round(bx + i * 0.6), Math.round(by + i * 0.4), {
+        r: 40, g: 30, b: 25, a: 220,
+      });
+    }
+  }
+
+  // Char marks / scorch patterns
+  for (let i = 0; i < 12; i++) {
+    const sx = cx + (rng() - 0.5) * 20;
+    const sy = groundY - 6 + (rng() - 0.5) * 12;
+    fillCircle(data, sx, sy, 1 + rng() * 1.5, {
+      r: 25 + Math.round(rng() * 20),
+      g: 18 + Math.round(rng() * 12),
+      b: 12 + Math.round(rng() * 8),
+      a: 180,
+    });
+  }
+
+  // Ember glow at base
+  for (let i = 0; i < 8; i++) {
+    const ex = cx + (rng() - 0.5) * 16;
+    const ey = groundY - 3 + (rng() - 0.5) * 4;
+    fillCircle(data, ex, ey, 1 + rng(), {
+      r: 200 + Math.round(rng() * 55),
+      g: 80 + Math.round(rng() * 50),
+      b: 10 + Math.round(rng() * 20),
+      a: 120 + Math.round(rng() * 80),
+    });
+  }
+
+  // Smoke wisps at top
+  for (let i = 0; i < 4; i++) {
+    const sx = cx + (rng() - 0.5) * 10;
+    const sy = groundY - 20 - rng() * 10;
+    fillCircle(data, sx, sy, 2 + rng() * 2, {
+      r: 100, g: 90, b: 85, a: 40 + Math.round(rng() * 30),
+    });
+  }
+};
+
+// ── FIRE ANIMATION FRAMES ──
+function makeFireGenerator(phase: number): SpriteGenerator {
+  return (data, rng) => {
+    const cx = 32, groundY = 54;
+
+    // Main flame body — layered ellipses from bottom to top
+    const flameColors = [
+      { r: 255, g: 200, b: 50 },   // bright yellow core
+      { r: 255, g: 140, b: 20 },   // orange
+      { r: 240, g: 80, b: 10 },    // red-orange
+      { r: 200, g: 40, b: 5 },     // dark red tips
+    ];
+
+    // Phase offset shifts the flame shape slightly
+    const phaseOff = phase * 3;
+
+    // Outer glow (semi-transparent)
+    fillEllipse(data, cx, groundY - 14, 16, 18, {
+      r: 255, g: 120, b: 20, a: 25,
+    });
+
+    // Main flame columns (3 interleaved for natural look)
+    const columns = [
+      { ox: -4 + phase * 2, h: 28, w: 8 },
+      { ox: 2 - phase, h: 32, w: 10 },
+      { ox: -1 + phase, h: 26, w: 7 },
+    ];
+
+    for (const col of columns) {
+      for (let y = groundY; y > groundY - col.h; y--) {
+        const progress = (groundY - y) / col.h; // 0=bottom, 1=top
+        const halfW = col.w * (1 - progress * 0.7) * (0.8 + Math.sin(y * 0.5 + phaseOff) * 0.2);
+
+        const colorIdx = Math.min(3, Math.floor(progress * 4));
+        const c = flameColors[colorIdx];
+        const noise = (rng() - 0.5) * 30;
+        const flicker = Math.sin(y * 0.8 + phaseOff + rng() * 2) * 0.15;
+
+        for (let x = cx + col.ox - halfW; x <= cx + col.ox + halfW; x++) {
+          const edgeDist = 1 - Math.abs(x - (cx + col.ox)) / halfW;
+          const alpha = Math.min(255, Math.round((180 + edgeDist * 75) * (1 - progress * 0.4 + flicker)));
+          setPixel(data, Math.round(x), y, {
+            r: clamp(Math.round(c.r + noise), 0, 255),
+            g: clamp(Math.round(c.g + noise * 0.6), 0, 255),
+            b: clamp(Math.round(c.b + noise * 0.3), 0, 255),
+            a: clamp(alpha, 0, 255),
+          });
+        }
+      }
+    }
+
+    // Bright core
+    fillEllipse(data, cx + phase, groundY - 8, 4, 6, {
+      r: 255, g: 255, b: 200, a: 180,
+    });
+
+    // Sparks / embers flying upward
+    for (let i = 0; i < 6; i++) {
+      const sx = cx + (rng() - 0.5) * 14;
+      const sy = groundY - 20 - rng() * 16;
+      setPixel(data, Math.round(sx), Math.round(sy), {
+        r: 255, g: 200 + Math.round(rng() * 55), b: 50,
+        a: 150 + Math.round(rng() * 105),
+      });
+    }
+  };
+}
+
 // ── ALL DECORATIONS ──
 const DECORATIONS: Record<string, SpriteGenerator> = {
   'tree-1': roundTree,
@@ -662,6 +1069,21 @@ const DECORATIONS: Record<string, SpriteGenerator> = {
   'fence-2': picketFence,
   'hedge-1': hedgeDense,
   'hedge-2': hedgeTrimmed,
+  'market-1': marketStall,
+  'crate-1': crateCluster,
+  'flower-1': flowerGarden,
+  'lamp-1': lampPost,
+  'hay-1': hayBale,
+  'wagon-1': wagonCart,
+  'bird-v1-up': makeBirdGenerator(true, 0),
+  'bird-v1-down': makeBirdGenerator(false, 0),
+  'bird-v2-up': makeBirdGenerator(true, 1),
+  'bird-v2-down': makeBirdGenerator(false, 1),
+  'bird-v3-up': makeBirdGenerator(true, 2),
+  'bird-v3-down': makeBirdGenerator(false, 2),
+  'burned-house': burnedHouse,
+  'fire-1': makeFireGenerator(0),
+  'fire-2': makeFireGenerator(1),
 };
 
 async function generateSprite(key: string, gen: SpriteGenerator): Promise<void> {

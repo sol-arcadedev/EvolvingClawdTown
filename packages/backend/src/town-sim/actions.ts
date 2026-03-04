@@ -237,6 +237,34 @@ function applyExpandTown(
 
   if (expanded === 0) return { success: false, error: 'No valid tiles to expand into' };
 
+  // Expand the water ring: ensure water tiles exist around all land tiles
+  // (convert void water tiles elevation=0 to visible water elevation=20)
+  const WATER_RING = 12;
+  for (let dy = -radius - WATER_RING; dy <= radius + WATER_RING; dy++) {
+    for (let dx = -radius - WATER_RING; dx <= radius + WATER_RING; dx++) {
+      const x = center.x + dx, y = center.y + dy;
+      if (!inBounds(map, x, y)) continue;
+      const idx = y * map.width + x;
+      const t = map.tiles[idx];
+      // Only convert void water (elevation=0) to visible water
+      if (t.terrain === TERRAIN_WATER && t.elevation === 0) {
+        // Check if within WATER_RING tiles of any land
+        let nearLand = false;
+        for (let cy = -WATER_RING; cy <= WATER_RING && !nearLand; cy++) {
+          for (let cx = -WATER_RING; cx <= WATER_RING && !nearLand; cx++) {
+            const nx = x + cx, ny = y + cy;
+            if (!inBounds(map, nx, ny)) continue;
+            const nDist = Math.sqrt(cx * cx + cy * cy);
+            if (nDist > WATER_RING) continue;
+            const ni = ny * map.width + nx;
+            if (map.tiles[ni].terrain !== TERRAIN_WATER) nearLand = true;
+          }
+        }
+        if (nearLand) t.elevation = 20;
+      }
+    }
+  }
+
   // Auto-generate plots on newly expanded land (3x3 plots with 1-tile gap)
   const plotStep = 4; // 3 tiles for plot + 1 tile gap
   for (let dy = -radius; dy <= radius - 2; dy += plotStep) {
@@ -337,6 +365,12 @@ const DECORATION_MAP: Record<string, number> = {
   bench: 5,
   fence: 6,
   hedge: 7,
+  market_stall: 8,
+  crate: 9,
+  flower_garden: 10,
+  lamp_post: 11,
+  hay_bale: 12,
+  wagon: 13,
 };
 
 function applyPlaceDecoration(

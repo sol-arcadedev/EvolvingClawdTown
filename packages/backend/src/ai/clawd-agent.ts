@@ -204,21 +204,33 @@ const BANNED_TERMS = [
   'white background', 'single building', 'game asset', 'low poly',
   'sci-fi', '8-bit', '16-bit',
   'surrounded by', 'sitting on', 'resting on', 'built on', 'placed on',
+  'next to', 'beside', 'with nearby', 'flanked by', 'backed by',
   'on a hill', 'on a cliff', 'by the water', 'by a lake', 'by a river',
   'in a forest', 'in a field', 'in a meadow', 'in a clearing',
+  'in front of', 'behind the', 'around the', 'along the',
   'winding path', 'stone path', 'cobblestone path', 'dirt path',
-  'pine trees', 'oak trees', 'flower garden', 'small garden',
+  'pine trees', 'oak trees', 'flower garden', 'small garden', 'front garden',
+  'flower beds', 'flower box', 'window box', 'planter', 'potted plant',
+  'front yard', 'back yard', 'courtyard',
   // Rendering/style words
   'isometric', '3d', 'realistic', 'sprite', 'voxel',
   'retro', 'cyberpunk', 'neon', 'vaporwave',
   'futuristic', 'steampunk',
   // Environment/ground words that must not appear
-  'trees', 'tree', 'bushes', 'bush', 'flowers', 'flower',
-  'garden', 'yard', 'fence', 'fencing', 'hedge',
+  'trees', 'tree', 'bushes', 'bush', 'flowers', 'flower', 'flora',
+  'garden', 'yard', 'fence', 'fencing', 'hedge', 'hedgerow',
   'grass', 'grassy', 'lawn', 'meadow', 'field',
-  'dirt', 'path', 'road', 'pavement', 'cobblestone',
-  'lake', 'river', 'pond', 'stream', 'waterfall',
-  'mountain', 'mountains', 'hills', 'cliff',
+  'dirt', 'path', 'road', 'pavement', 'cobblestone', 'walkway', 'trail',
+  'lake', 'river', 'pond', 'stream', 'waterfall', 'creek',
+  'mountain', 'mountains', 'hills', 'cliff', 'hillside', 'hilltop',
+  'rocks', 'boulders', 'stones', 'pebbles', 'stone wall',
+  'ivy', 'vines', 'moss', 'mossy', 'overgrown', 'creeping',
+  'shrubs', 'shrub', 'plants', 'plant', 'vegetation', 'foliage', 'leaves',
+  'landscape', 'scenery', 'environment', 'surroundings', 'grounds',
+  'sky', 'clouds', 'sun', 'moon', 'stars',
+  'snow', 'rain', 'puddle', 'puddles',
+  'well', 'fountain', 'birdbath', 'lamp post', 'lantern',
+  'sign', 'signpost', 'mailbox', 'barrel', 'crate', 'cart', 'wagon',
   'sky', 'clouds', 'horizon', 'landscape', 'scenery',
   'forest', 'woodland', 'clearing',
 ];
@@ -233,10 +245,10 @@ function sanitizeImagePrompt(prompt: string): string {
   }
   // Collapse whitespace and trim trailing commas/spaces
   cleaned = cleaned.replace(/\s+/g, ' ').replace(/^[,\s]+|[,\s]+$/g, '').trim();
-  // Cap at ~25 words
+  // Cap at ~12 words — force short prompts
   const words = cleaned.split(/\s+/);
-  if (words.length > 25) {
-    cleaned = words.slice(0, 25).join(' ');
+  if (words.length > 12) {
+    cleaned = words.slice(0, 12).join(' ');
   }
   return cleaned;
 }
@@ -297,25 +309,28 @@ export async function validateImageWithVision(imageBuffer: Buffer): Promise<{ pa
             },
           },
           {
-            text: `Analyze this image. Is it a SINGLE isolated isometric building with a transparent or white background?
+            text: `Analyze this image. Is it a SINGLE isolated isometric building suitable for an isometric tile-based game like SimCity 2000 or Age of Empires?
 
 Respond with JSON: { "pass": true/false, "reason": "brief explanation" }
 
-Criteria for PASS:
-- Single building or architectural structure (houses, towers, shops, temples, etc.)
-- Isometric or 3/4 top-down perspective
-- Background is mostly transparent or white (small base tile or platform under the building is OK)
+Criteria for PASS (ALL must be true):
+- Single building or architectural structure
+- MUST be in isometric 3/4 top-down perspective (45-degree angle from above) — you should see the ROOF/TOP of the building AND exactly TWO side faces (typically front-left and front-right walls)
+- Background is mostly transparent or white
 - No large ground areas, terrain, grass fields, trees, or environment
-- No multiple separate buildings
+- Pixel art or retro game sprite style
 
-Criteria for FAIL:
+Criteria for FAIL (ANY of these = fail):
+- Front view / elevation view (seeing only ONE face of the building straight-on) — THIS IS THE MOST IMPORTANT CHECK
+- Side view (seeing only one wall)
+- Eye-level perspective (camera at ground level looking at the building)
+- You cannot see the roof or top of the building
 - Multiple separate buildings visible
-- Large ground areas, terrain, or environmental elements dominating the image
-- Not a building at all (just an object, character, or abstract shape)
-- Busy or detailed background with scenery
-- Non-isometric perspective (pure front view, pure side view)
+- Large ground areas, terrain, or environmental elements
+- Not a building at all
+- Realistic 3D render or photograph style (should be pixel art)
 
-Note: A small tile/platform directly under the building is acceptable. The style should be pixel art, retro game sprite, or stylized — any game-like art style is fine.`,
+The key test: in a correct isometric view, you always see the top/roof of the building AND two of its side walls forming a diamond-like shape. If you only see one wall face, it is NOT isometric and must FAIL.`,
           },
         ],
       }],

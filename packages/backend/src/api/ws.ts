@@ -9,7 +9,8 @@ import { TownState, createTownSnapshot } from '../town-sim/index';
 export interface WsMessage {
   type: 'snapshot' | 'wallet_update' | 'tick' | 'trade' | 'console_line'
     | 'clawd_decision' | 'building_image_update'
-    | 'town_snapshot' | 'building_placed' | 'road_added' | 'district_grown';
+    | 'town_snapshot' | 'building_placed' | 'road_added' | 'district_grown'
+    | 'wallet_burned';
   [key: string]: any;
 }
 
@@ -163,6 +164,7 @@ export class TownWebSocketServer {
             height: townSnap.height,
             buildings: townSnap.buildings,
             decorations: townSnap.decorations,
+            ruins: townSnap.ruins,
             seed: townSnap.seed,
             tilemapSize: townSnap.tilemap.length,
             reseedAt: this.reseedAt,

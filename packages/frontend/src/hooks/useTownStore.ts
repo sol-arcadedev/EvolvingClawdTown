@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { WalletState, TradeEvent, TownBuilding, TownSnapshotMeta } from '../types';
+import { WalletState, TradeEvent, TownBuilding, TownSnapshotMeta, TownRuin } from '../types';
 
 const MAX_CONSOLE_LINES = 14;
 
@@ -41,6 +41,31 @@ export function consumeChangedAddresses(): { snapshot: boolean; changed: Set<str
   return { snapshot: false, changed: result };
 }
 
+// ── Burning houses tracking (module-level, fire animation for 5 min) ────
+const BURN_DURATION_MS = 300_000; // 5 minutes
+const _burningHouses = new Map<string, { plotX: number; plotY: number; burnedAt: number }>();
+
+/** Add a house that's currently on fire. Key = "x,y". */
+export function addBurningHouse(plotX: number, plotY: number, burnedAt: number): void {
+  _burningHouses.set(`${plotX},${plotY}`, { plotX, plotY, burnedAt });
+}
+
+/** Get all currently burning houses (within 5-min window). Expired entries are cleaned. */
+export function getBurningHouses(): Map<string, { plotX: number; plotY: number; burnedAt: number }> {
+  const now = Date.now();
+  for (const [key, entry] of _burningHouses) {
+    if (now - entry.burnedAt >= BURN_DURATION_MS) {
+      _burningHouses.delete(key);
+    }
+  }
+  return _burningHouses;
+}
+
+/** Check if a ruin is still within the fire window (should show fire instead of ruin). */
+export function isStillBurning(burnedAt: number): boolean {
+  return Date.now() - burnedAt < BURN_DURATION_MS;
+}
+
 // ── Tilemap change tracking ──────────────────────────────────────
 let _tilemapDirty = false;
 export function consumeTilemapDirty(): boolean {
@@ -67,6 +92,8 @@ interface TownStore {
   townBuildings: Map<number, TownBuilding>;
   townSeed: number;
   decorations: Array<{ x: number; y: number; type: number }>;
+  ruins: TownRuin[];
+  reseedElapsedMs: number; // how many ms ago the reseed happened (at time of snapshot)
 
   // Actions
   applySnapshot: (wallets: WalletState[], consoleLines?: string[], tokenMint?: string) => void;
@@ -82,6 +109,7 @@ interface TownStore {
   setLocateHouse: (fn: ((address: string) => void) | null) => void;
   applyClawdDecision: (address: string, fields: { buildingName: string; architecturalStyle: string; clawdComment: string }) => void;
   applyBuildingImage: (address: string, imageUrl: string) => void;
+  addRuin: (ruin: TownRuin) => void;
   applyTownSnapshot: (meta: TownSnapshotMeta, tilemap: Uint8Array) => void;
 }
 
@@ -102,6 +130,8 @@ export const useTownStore = create<TownStore>((set) => ({
   townBuildings: new Map(),
   townSeed: 0,
   decorations: [],
+  ruins: [],
+  reseedElapsedMs: Infinity,
 
   applySnapshot: (wallets, consoleLines, tokenMint) => {
     const map = new Map<string, WalletState>();
@@ -185,10 +215,28 @@ export const useTownStore = create<TownStore>((set) => ({
     });
   },
 
+  addRuin: (ruin) => {
+    set((state) => ({ ruins: [...state.ruins, ruin] }));
+  },
+
   applyTownSnapshot: (meta, tilemap) => {
     _tilemapDirty = true;
     const bldMap = new Map<number, TownBuilding>();
     for (const b of meta.buildings) bldMap.set(b.id, b);
+    // Compute how long ago the reseed happened using server's clock
+    let reseedElapsedMs = Infinity;
+    if (meta.reseedAt && meta.serverTime) {
+      reseedElapsedMs = meta.serverTime - meta.reseedAt;
+    }
+    // Populate burning houses from snapshot ruins that are still within 5-min window
+    const snapshotRuins = meta.ruins || [];
+    const now = Date.now();
+    for (const r of snapshotRuins) {
+      if (now - r.burnedAt < BURN_DURATION_MS) {
+        addBurningHouse(r.x, r.y, r.burnedAt);
+      }
+    }
+
     set({
       tilemap,
       mapWidth: meta.width,
@@ -196,6 +244,8 @@ export const useTownStore = create<TownStore>((set) => ({
       townBuildings: bldMap,
       townSeed: meta.seed,
       decorations: meta.decorations || [],
+      ruins: snapshotRuins,
+      reseedElapsedMs,
     });
   },
 }));

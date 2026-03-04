@@ -9,7 +9,8 @@ import {
   BUY_BOOST_DURATION_MS,
 } from './rules';
 import { log } from '../utils/logger';
-import { TownState, findPlotForHolder, applyAction, getArchetypeForTier, DISTRICT_NAMES } from '../town-sim/index';
+import { TownState, findPlotForHolder, applyAction, getArchetypeForTier, addRuin, DISTRICT_NAMES } from '../town-sim/index';
+import { planBuildingPlacement, executePlacementPlan } from '../ai/town-planner';
 
 const PROBATION_MS = parseInt(process.env.BOT_PROBATION_MS || '30000');
 
@@ -32,6 +33,10 @@ export interface ProcessedUpdate {
   walletRow: WalletRow;
   event: GameEvent;
   isNew: boolean;
+  burned?: boolean;
+  burnedPlotX?: number;
+  burnedPlotY?: number;
+  burnedAt?: number;
 }
 
 export class GameEngine {
@@ -58,26 +63,47 @@ export class GameEngine {
       // Try tilemap plot first, fall back to spiral grid
       let plotX = 0, plotY = 0;
       if (this.townState) {
-        const tmPlot = findPlotForHolder(this.townState, maxTier);
+        let tmPlot = findPlotForHolder(this.townState, maxTier);
+
+        // If no plots available, expand the town (retry up to 5 times)
+        if (!tmPlot) {
+          for (let attempt = 0; attempt < 5 && !tmPlot; attempt++) {
+            const plan = planBuildingPlacement(this.townState, maxTier);
+            if (plan) {
+              const planResult = executePlacementPlan(this.townState, plan);
+              if (planResult.success && planResult.plotId) {
+                tmPlot = this.townState.plots.get(planResult.plotId) || null;
+              }
+            }
+            if (!tmPlot) {
+              tmPlot = findPlotForHolder(this.townState, maxTier);
+            }
+          }
+        }
+
         if (tmPlot) {
           plotX = tmPlot.originX;
           plotY = tmPlot.originY;
-          const archetype = getArchetypeForTier(1);
-          applyAction(this.townState, {
-            type: 'PLACE_BUILDING_ON_PLOT',
-            plotId: tmPlot.id,
-            archetypeId: archetype.id,
-            ownerAddress: event.walletAddress,
-          });
+          if (!tmPlot.occupied) {
+            const archetype = getArchetypeForTier(1);
+            applyAction(this.townState, {
+              type: 'PLACE_BUILDING_ON_PLOT',
+              plotId: tmPlot.id,
+              archetypeId: archetype.id,
+              ownerAddress: event.walletAddress,
+            });
+          }
         } else {
-          const fallback = await this.db.getNextPlotForTier(maxTier);
-          plotX = fallback.x;
-          plotY = fallback.y;
+          // Place near the town edge as last resort (center of map)
+          const cx = Math.floor(this.townState.map.width / 2);
+          const cy = Math.floor(this.townState.map.height / 2);
+          plotX = cx;
+          plotY = cy;
         }
       } else {
-        const fallback = await this.db.getNextPlotForTier(maxTier);
-        plotX = fallback.x;
-        plotY = fallback.y;
+        // No townState — place at center
+        plotX = 128;
+        plotY = 128;
       }
 
       // Always start at tier 1 — progression happens via ticks
@@ -156,6 +182,40 @@ export class GameEngine {
 
     switch (event.type) {
       case 'buy': {
+        // Buy-back after burn: wallet was zeroed out, assign a fresh plot
+        if (wallet.plot_x === 0 && wallet.plot_y === 0 && this.townState) {
+          const buyBackTier = getTier(walletPctOfSupply(event.newBalance, await this.db.getTotalSupply()));
+          let tmPlot = findPlotForHolder(this.townState, buyBackTier);
+          if (!tmPlot) {
+            for (let attempt = 0; attempt < 5 && !tmPlot; attempt++) {
+              const plan = planBuildingPlacement(this.townState, buyBackTier);
+              if (plan) {
+                const planResult = executePlacementPlan(this.townState, plan);
+                if (planResult.success && planResult.plotId) {
+                  tmPlot = this.townState.plots.get(planResult.plotId) || null;
+                }
+              }
+              if (!tmPlot) tmPlot = findPlotForHolder(this.townState, buyBackTier);
+            }
+          }
+          if (tmPlot) {
+            if (!tmPlot.occupied) {
+              const archetype = getArchetypeForTier(1);
+              applyAction(this.townState, {
+                type: 'PLACE_BUILDING_ON_PLOT',
+                plotId: tmPlot.id,
+                archetypeId: archetype.id,
+                ownerAddress: event.walletAddress,
+              });
+            }
+            await this.db.updateWallet(event.walletAddress, { plot_x: tmPlot.originX, plot_y: tmPlot.originY } as any);
+            // Reset to tier 1 fresh start
+            houseTier = 1;
+            buildProgress = 0;
+            damagePct = 0;
+          }
+        }
+
         // Boost build speed — tier stays the same, progression via ticks
         buildSpeedMult = calcBuildSpeedBoost(buildSpeedMult);
         boostExpiresAt = new Date(Date.now() + BUY_BOOST_DURATION_MS);
@@ -183,13 +243,56 @@ export class GameEngine {
       }
     }
 
-    // Zero balance — destroyed (tier 0)
+    // Zero balance — destroyed (tier 0), create ruin
+    let burned = false;
+    let burnedPlotX = 0, burnedPlotY = 0;
+    let burnedAt = 0;
     if (event.newBalance <= 0n) {
       houseTier = 0;
       buildProgress = 0;
       damagePct = 0;
       buildSpeedMult = 1;
       boostExpiresAt = null;
+
+      // Capture plot position before clearing, create a permanent ruin
+      if (wallet.plot_x > 0 || wallet.plot_y > 0) {
+        burnedPlotX = wallet.plot_x;
+        burnedPlotY = wallet.plot_y;
+        burnedAt = Date.now();
+        burned = true;
+
+        if (this.townState) {
+          addRuin(this.townState, {
+            plotX: burnedPlotX,
+            plotY: burnedPlotY,
+            burnedAt,
+            formerOwner: event.walletAddress,
+          });
+
+          // Free the plot so it becomes a ruin (remove building, mark unoccupied)
+          const plotId = `p_${burnedPlotX}_${burnedPlotY}`;
+          const plot = this.townState.plots.get(plotId);
+          if (plot && plot.occupied) {
+            // Clear building tiles
+            const bld = this.townState.buildings[plot.buildingId];
+            if (bld) {
+              for (let dy = 0; dy < plot.height; dy++) {
+                for (let dx = 0; dx < plot.width; dx++) {
+                  const tx = plot.originX + dx, ty = plot.originY + dy;
+                  if (tx < this.townState.map.width && ty < this.townState.map.height) {
+                    this.townState.map.tiles[ty * this.townState.map.width + tx].buildingId = 0;
+                  }
+                }
+              }
+            }
+            plot.occupied = false;
+            plot.buildingId = 0;
+          }
+        }
+
+        // Clear wallet's plot coords so buy-back gets a new plot
+        await this.db.updateWallet(event.walletAddress, { plot_x: 0, plot_y: 0 } as any);
+      }
     }
 
     const update: WalletStateUpdate = {
@@ -209,6 +312,10 @@ export class GameEngine {
       walletRow: updatedRow,
       event,
       isNew,
+      burned,
+      burnedPlotX,
+      burnedPlotY,
+      burnedAt,
     };
   }
 }

@@ -17,7 +17,7 @@ export function getTier(walletPct: number): number {
 }
 
 // Build progress
-export const BASE_BUILD_RATE = parseFloat(process.env.BASE_BUILD_RATE || '0.5');
+export const BASE_BUILD_RATE = parseFloat(process.env.BASE_BUILD_RATE || '100');
 export const MAX_BUILD_SPEED_MULT = parseFloat(process.env.MAX_BUILD_SPEED_MULT || '5.0');
 export const BUY_BOOST_DURATION_MS = parseInt(process.env.BUY_BOOST_DURATION_MS || String(2 * 60 * 60 * 1000));
 export const BUY_BOOST_PER_TRADE = parseFloat(process.env.BUY_BOOST_PER_TRADE || '0.5');

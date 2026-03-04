@@ -123,13 +123,19 @@ async function seedHolders(db: DB, force = false) {
     if (townState) {
       let tmPlot = findPlotForHolder(townState, tier);
 
-      // If no plots available, use town planner to expand
+      // If no plots available, use town planner to expand (retry up to 5 times)
       if (!tmPlot) {
-        const plan = planBuildingPlacement(townState, tier);
-        if (plan) {
-          const planResult = executePlacementPlan(townState, plan);
-          if (planResult.success && planResult.plotId) {
-            tmPlot = townState.plots.get(planResult.plotId) || null;
+        for (let attempt = 0; attempt < 5 && !tmPlot; attempt++) {
+          const plan = planBuildingPlacement(townState, tier);
+          if (plan) {
+            const planResult = executePlacementPlan(townState, plan);
+            if (planResult.success && planResult.plotId) {
+              tmPlot = townState.plots.get(planResult.plotId) || null;
+            }
+          }
+          // After expansion, also check for any now-available existing plot
+          if (!tmPlot) {
+            tmPlot = findPlotForHolder(townState, tier);
           }
         }
       }
@@ -148,14 +154,14 @@ async function seedHolders(db: DB, force = false) {
         plotX = tmPlot.originX;
         plotY = tmPlot.originY;
       } else {
-        const fallback = await db.getNextPlotForTier(tier);
-        plotX = fallback.x;
-        plotY = fallback.y;
+        // No valid plot found — skip this wallet entirely rather than placing on water
+        log.warn(`No valid plot for ${ownerAddress.slice(0, 8)}... (tier ${tier}) — skipping`);
+        continue;
       }
     } else {
-      const fallback = await db.getNextPlotForTier(tier);
-      plotX = fallback.x;
-      plotY = fallback.y;
+      // No townState — skip (should not happen)
+      log.warn(`No townState available for seeding — skipping ${ownerAddress.slice(0, 8)}...`);
+      continue;
     }
     try {
       await db.createWallet(ownerAddress, balance, plotX, plotY, 1, hue);
@@ -172,14 +178,10 @@ async function seedHolders(db: DB, force = false) {
 }
 
 async function seedClawdHQ(db: DB) {
-  const existing = await db.getWallet(CLAWD_HQ_ADDRESS);
-  if (existing) return;
-
   // The castle is already placed at center by initializeSmallTown()
-  // Just find where it is
+  // Find the castle plot coords
   let plotX = Math.floor(256 / 2), plotY = Math.floor(256 / 2);
   if (townState) {
-    // Look for the castle plot at center
     const cx = Math.floor(townState.map.width / 2);
     const cy = Math.floor(townState.map.height / 2);
     const castlePlot = townState.plots.get(`p_${cx}_${cy}`);
@@ -205,6 +207,17 @@ async function seedClawdHQ(db: DB) {
         log.info(`Clawd HQ placed on tilemap at plot ${hqPlot.id} (${plotX}, ${plotY})`);
       }
     }
+  }
+
+  const existing = await db.getWallet(CLAWD_HQ_ADDRESS);
+  if (existing) {
+    // Already exists — ensure coords match the current castle position
+    // (reseed creates a fresh tilemap so the center plot may have moved)
+    if (existing.plot_x !== plotX || existing.plot_y !== plotY) {
+      log.info(`Relocating Clawd HQ from (${existing.plot_x},${existing.plot_y}) to center (${plotX},${plotY})`);
+      await db.updateWallet(CLAWD_HQ_ADDRESS, { plot_x: plotX, plot_y: plotY } as any);
+    }
+    return;
   }
 
   log.info(`Seeding Clawd Architect HQ at plot (${plotX},${plotY})...`);
@@ -243,13 +256,18 @@ async function migrateWalletsToTilemap(db: DB) {
     // Try existing plots first
     let plot = findPlotForHolder(townState, w.house_tier);
 
-    // If no plots available, use town planner to expand and create one
+    // If no plots available, use town planner to expand and create one (retry up to 5 times)
     if (!plot) {
-      const plan = planBuildingPlacement(townState, w.house_tier);
-      if (plan) {
-        const planResult = executePlacementPlan(townState, plan);
-        if (planResult.success && planResult.plotId) {
-          plot = townState.plots.get(planResult.plotId) || null;
+      for (let attempt = 0; attempt < 5 && !plot; attempt++) {
+        const plan = planBuildingPlacement(townState, w.house_tier);
+        if (plan) {
+          const planResult = executePlacementPlan(townState, plan);
+          if (planResult.success && planResult.plotId) {
+            plot = townState.plots.get(planResult.plotId) || null;
+          }
+        }
+        if (!plot) {
+          plot = findPlotForHolder(townState, w.house_tier);
         }
       }
     }
@@ -321,6 +339,7 @@ async function main() {
       archetypes: getAllArchetypes(),
       stats: { population: 0, jobs: 0, commerceScore: 0, greeneryScore: 0, averageDensity: 0, buildingCount: 0, roadTileCount: 0, districtCoverage: {} },
       seed: TOWN_SEED,
+      ruins: savedTilemap.ruins || [],
     };
     // Recompute tags and stats from loaded data
     computeTags(map);
@@ -534,6 +553,20 @@ async function main() {
           `tier=${result.walletState.house_tier} build=${result.walletState.build_progress}% ` +
           `dmg=${result.walletState.damage_pct}%`
       );
+
+      // Broadcast burn event if wallet sold all tokens
+      if (result.burned) {
+        wsServer.broadcastMessage({
+          type: 'wallet_burned',
+          address: event.walletAddress,
+          plotX: result.burnedPlotX,
+          plotY: result.burnedPlotY,
+          burnedAt: result.burnedAt,
+        });
+        wsServer.broadcastTilemapUpdate();
+        wsServer.pushConsoleLine(`> 🔥 ${event.walletAddress.slice(0, 8)}... sold everything! House burning down...`);
+        _scheduleTilemapSave?.();
+      }
 
       // Queue AI decision (async, non-blocking)
       if (isAIEnabled()) {

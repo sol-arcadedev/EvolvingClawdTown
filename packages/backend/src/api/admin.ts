@@ -122,7 +122,9 @@ export function createAdminRouter(deps: AdminDeps): Router {
         deps.setChainListener(null);
       }
 
-      // Disconnect all WS clients so they reconnect with fresh state
+      // Force-refresh all clients then disconnect
+      deps.wsServer.broadcastMessage({ type: 'force_refresh' } as any);
+      await new Promise(r => setTimeout(r, 200));
       deps.wsServer.disconnectAllClients();
 
       res.json({ success: true, message: 'Database reset complete' });
@@ -151,8 +153,18 @@ export function createAdminRouter(deps: AdminDeps): Router {
       // Update env
       process.env.TOKEN_MINT_ADDRESS = mint;
 
-      // Reset DB immediately
+      // Reset DB and regenerate fresh town
       await deps.db.resetAll();
+      const { initializeSmallTown } = await import('../town-sim/index');
+      const freshState = initializeSmallTown(Date.now());
+      deps.setTownState(freshState);
+      await deps.db.saveTilemap(freshState);
+      log.info(`[ADMIN] Fresh tilemap generated for token change`);
+
+      // Force-refresh all clients then disconnect
+      deps.wsServer.broadcastMessage({ type: 'force_refresh' } as any);
+      await new Promise(r => setTimeout(r, 200));
+      deps.wsServer.disconnectAllClients();
 
       // Respond immediately — seed + chain listener run in background
       log.info(`[ADMIN] Token changed to ${mint}, seeding in background...`);
@@ -223,7 +235,11 @@ export function createAdminRouter(deps: AdminDeps): Router {
         log.info('[ADMIN] Chain listener restarted after reseed');
       }
 
-      // Disconnect all WS clients so they reconnect with fresh data
+      // Mark reseed timestamp, force-refresh all clients, then disconnect
+      deps.wsServer.markReseed();
+      deps.wsServer.broadcastMessage({ type: 'force_refresh' } as any);
+      // Small delay to let the message flush before disconnecting
+      await new Promise(r => setTimeout(r, 200));
       deps.wsServer.disconnectAllClients();
 
       // Queue Clawd HQ first, then holder buildings

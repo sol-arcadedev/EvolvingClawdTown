@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useTownStore, consumeChangedAddresses, getActivityFade, consumeTilemapDirty } from '../hooks/useTownStore';
+import { useTownStore, consumeChangedAddresses, getActivityFade, consumeTilemapDirty, getBurningHouses, isStillBurning } from '../hooks/useTownStore';
 import type { WalletState } from '../types';
 import {
   COL_BG,
@@ -36,6 +36,12 @@ const DECO_SPRITE_KEYS: Record<number, string[]> = {
   5: ['bench-1'],                                             // bench
   6: ['fence-1', 'fence-2'],                                  // fence
   7: ['hedge-1', 'hedge-2'],                                  // hedge
+  8: ['market-1'],                                             // market stall
+  9: ['crate-1'],                                              // crate cluster
+  10: ['flower-1'],                                            // flower garden
+  11: ['lamp-1'],                                              // lamp post
+  12: ['hay-1'],                                               // hay bale
+  13: ['wagon-1'],                                             // wagon/cart
 };
 const DECO_SPRITE_SIZE = 28;
 const decoSpriteCache = new Map<string, HTMLImageElement | null>();
@@ -114,7 +120,7 @@ function findRandomWaterTile(decoded: DecodedTile[] | null, mapW: number, mapH: 
     const tx = Math.floor(Math.random() * mapW);
     const ty = Math.floor(Math.random() * mapH);
     const tile = decoded[ty * mapW + tx];
-    if (tile && tile.terrain === 0) {
+    if (tile && tile.terrain === 0 && tile.elevation > 0) {
       // Make sure it's not right at the edge (needs room to swim)
       if (tx > 3 && tx < mapW - 3 && ty > 3 && ty < mapH - 3) return [tx, ty];
     }
@@ -128,7 +134,8 @@ function isWaterAt(decoded: DecodedTile[] | null, mapW: number, tx: number, ty: 
   const iy = Math.floor(ty);
   if (ix < 0 || ix >= mapW || iy < 0) return false;
   const tile = decoded[iy * mapW + ix];
-  return tile ? tile.terrain === 0 : false;
+  // Must be real water (not void — elevation 0)
+  return tile ? (tile.terrain === 0 && tile.elevation > 0) : false;
 }
 
 function spawnWhale(decoded: DecodedTile[] | null, mapW: number, mapH: number): WhaleEntity | null {
@@ -241,6 +248,220 @@ function updateWhales(decoded: DecodedTile[] | null, mapW: number, mapH: number)
         break;
     }
   }
+}
+
+// ── BIRD SPRITES ──
+const BIRD_SPRITE_KEYS = [
+  'bird-v1-up', 'bird-v1-down',
+  'bird-v2-up', 'bird-v2-down',
+  'bird-v3-up', 'bird-v3-down',
+];
+const birdSpriteCache = new Map<string, HTMLImageElement | null>();
+let birdSpritesInitialized = false;
+
+function initBirdSprites(): void {
+  if (birdSpritesInitialized) return;
+  birdSpritesInitialized = true;
+  for (const key of BIRD_SPRITE_KEYS) {
+    const img = new Image();
+    img.src = `/assets/decorations/${key}.png`;
+    img.onload = () => birdSpriteCache.set(key, img);
+    img.onerror = () => birdSpriteCache.set(key, null);
+  }
+}
+
+interface BirdEntity {
+  tx: number; ty: number;
+  dx: number; dy: number;
+  variant: number; // 1, 2, or 3
+  flapFrame: number;
+  flapInterval: number;
+  wingsUp: boolean;
+  glideTimer: number; // >0 means gliding (wings stay up)
+  alpha: number;
+}
+
+const MAX_BIRDS = 4;
+const BIRD_SPEED = 0.06;
+const birds: BirdEntity[] = [];
+let birdSpawnTimer = 0;
+
+function spawnBird(mapW: number, mapH: number): BirdEntity {
+  const variant = 1 + Math.floor(Math.random() * 3);
+  // Pick random edge to spawn from
+  const edge = Math.floor(Math.random() * 4);
+  let tx: number, ty: number, dx: number, dy: number;
+  const speed = BIRD_SPEED * (0.8 + Math.random() * 0.4);
+  switch (edge) {
+    case 0: // left
+      tx = -5; ty = Math.random() * mapH;
+      dx = speed; dy = (Math.random() - 0.5) * speed * 0.5;
+      break;
+    case 1: // right
+      tx = mapW + 5; ty = Math.random() * mapH;
+      dx = -speed; dy = (Math.random() - 0.5) * speed * 0.5;
+      break;
+    case 2: // top
+      tx = Math.random() * mapW; ty = -5;
+      dx = (Math.random() - 0.5) * speed * 0.5; dy = speed;
+      break;
+    default: // bottom
+      tx = Math.random() * mapW; ty = mapH + 5;
+      dx = (Math.random() - 0.5) * speed * 0.5; dy = -speed;
+      break;
+  }
+  return {
+    tx, ty, dx, dy, variant,
+    flapFrame: 0,
+    flapInterval: 8 + Math.floor(Math.random() * 5),
+    wingsUp: true,
+    glideTimer: 0,
+    alpha: 1,
+  };
+}
+
+function updateBirds(mapW: number, mapH: number) {
+  birdSpawnTimer++;
+  if (birdSpawnTimer > 300 && birds.length < MAX_BIRDS && mapW > 0) {
+    birdSpawnTimer = 0;
+    const b = spawnBird(mapW, mapH);
+    birds.push(b);
+    // 30% chance flock (2-3 extra birds)
+    if (Math.random() < 0.3) {
+      const flockSize = 1 + Math.floor(Math.random() * 2);
+      for (let f = 0; f < flockSize && birds.length < MAX_BIRDS; f++) {
+        const fb = { ...b };
+        fb.tx += (Math.random() - 0.5) * 4;
+        fb.ty += (Math.random() - 0.5) * 4;
+        fb.flapFrame = Math.floor(Math.random() * fb.flapInterval);
+        birds.push(fb);
+      }
+    }
+  }
+
+  for (let i = birds.length - 1; i >= 0; i--) {
+    const b = birds[i];
+    b.tx += b.dx;
+    b.ty += b.dy;
+
+    // Flap animation
+    if (b.glideTimer > 0) {
+      b.glideTimer--;
+      b.wingsUp = true;
+    } else {
+      b.flapFrame++;
+      if (b.flapFrame >= b.flapInterval) {
+        b.flapFrame = 0;
+        b.wingsUp = !b.wingsUp;
+        // Occasional glide
+        if (Math.random() < 0.15) {
+          b.glideTimer = 20 + Math.floor(Math.random() * 30);
+        }
+      }
+    }
+
+    // Remove if far offscreen
+    if (b.tx < -10 || b.tx > mapW + 10 || b.ty < -10 || b.ty > mapH + 10) {
+      birds.splice(i, 1);
+    }
+  }
+}
+
+// ── BURNED HOUSE + FIRE SPRITES ──
+const BURN_SPRITE_KEYS = ['burned-house', 'fire-1', 'fire-2'];
+const burnSpriteCache = new Map<string, HTMLImageElement | null>();
+let burnSpritesInitialized = false;
+
+function initBurnSprites(): void {
+  if (burnSpritesInitialized) return;
+  burnSpritesInitialized = true;
+  for (const key of BURN_SPRITE_KEYS) {
+    const img = new Image();
+    img.src = `/assets/decorations/${key}.png`;
+    img.onload = () => burnSpriteCache.set(key, img);
+    img.onerror = () => burnSpriteCache.set(key, null);
+  }
+}
+
+// ── WIND SYSTEM ──
+let windStrength = 0;
+let windFrame = 0;
+
+interface WindStreak {
+  x: number; y: number;
+  len: number;
+  speed: number;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
+
+const MAX_WIND_STREAKS = 40;
+const windStreaks: WindStreak[] = [];
+
+// ── RAIN SYSTEM ──
+type WeatherState = 'clear' | 'drizzle' | 'rain' | 'drizzle_out';
+let weatherState: WeatherState = 'clear';
+let weatherTimer = 0;
+let weatherDuration = 600; // frames until next transition
+let rainIntensity = 0;
+let rainTarget = 0;
+
+interface RainDrop {
+  x: number; y: number;
+  speed: number;
+  len: number;
+  alpha: number;
+}
+
+const MAX_RAIN_DROPS = 200;
+const rainDrops: RainDrop[] = [];
+
+interface RainSplash {
+  tx: number; ty: number;
+  frame: number;
+  maxFrame: number;
+}
+
+const MAX_RAIN_SPLASHES = 15;
+const rainSplashes: RainSplash[] = [];
+let splashSpawnTimer = 0;
+
+function updateWeather() {
+  weatherTimer++;
+  if (weatherTimer >= weatherDuration) {
+    weatherTimer = 0;
+    switch (weatherState) {
+      case 'clear':
+        if (Math.random() < 0.15) {
+          weatherState = 'drizzle';
+          weatherDuration = 90 + Math.floor(Math.random() * 60); // 3-5s
+          rainTarget = 0.3;
+        } else {
+          weatherDuration = 300 + Math.floor(Math.random() * 300); // 10-20s
+        }
+        break;
+      case 'drizzle':
+        weatherState = 'rain';
+        weatherDuration = 300 + Math.floor(Math.random() * 450); // 10-25s
+        rainTarget = 0.7 + Math.random() * 0.3;
+        break;
+      case 'rain':
+        weatherState = 'drizzle_out';
+        weatherDuration = 90 + Math.floor(Math.random() * 60);
+        rainTarget = 0.15;
+        break;
+      case 'drizzle_out':
+        weatherState = 'clear';
+        weatherDuration = 300 + Math.floor(Math.random() * 600);
+        rainTarget = 0;
+        break;
+    }
+  }
+
+  // Smooth lerp toward target
+  rainIntensity += (rainTarget - rainIntensity) * 0.01;
+  if (rainIntensity < 0.001) rainIntensity = 0;
 }
 
 // ── CONSTRUCTION ANIMATION (single sprite, animated programmatically) ──
@@ -588,14 +809,6 @@ export default function TownCanvas() {
       if (hoverClearTimer) { clearTimeout(hoverClearTimer); hoverClearTimer = null; }
     };
 
-    // ── PARTICLES ──
-    const particles: Particle[] = [];
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const p = spawnParticle();
-      p.life = Math.random() * p.maxLife;
-      particles.push(p);
-    }
-
     let frame = 0;
 
     // No staged reveal — all clients see the same complete state immediately
@@ -763,7 +976,7 @@ export default function TownCanvas() {
         for (let ty2 = tyStart; ty2 <= tyEnd; ty2++) {
           for (let tx = txStart; tx <= txEnd; tx++) {
             const tile = decodedTiles[ty2 * mapW + tx];
-            if (!tile || tile.terrain !== 0) continue;
+            if (!tile || tile.terrain !== 0 || tile.elevation === 0) continue;
 
             const elev = tile.elevation / 255 * 3;
             const [sx, sy] = tileToScreen(tx, ty2, elev);
@@ -874,7 +1087,11 @@ export default function TownCanvas() {
               const sprite = getDecoSprite(deco.type, deco.x, deco.y);
               if (sprite) {
                 const s = deco.type === 1 ? DECO_SPRITE_SIZE : DECO_SPRITE_SIZE * 0.7;
-                ctx.drawImage(sprite, dx - s / 2, dy - s, s, s);
+                // Wind sway for trees
+                const sway = deco.type === 1
+                  ? Math.sin(frame * 0.03 + deco.x * 0.7) * windStrength * 1.5
+                  : 0;
+                ctx.drawImage(sprite, dx - s / 2 + sway, dy - s, s, s);
                 continue;
               }
 
@@ -1010,6 +1227,76 @@ export default function TownCanvas() {
         }
       }
 
+      // ── 1.8. WIND STREAKS ──
+      // Update wind strength (oscillates via sine, ~30s cycle)
+      windFrame++;
+      windStrength = (Math.sin(windFrame * 0.0035) * 0.5 + 0.5);
+
+      if (showAnim && windStrength > 0.1 && camScale >= 0.1 && decodedTiles && mapW > 0) {
+        // Compute tilemap world-space bounds from actual visible tile radius
+        const windMapCx = Math.floor(mapW / 2);
+        const windMapCy = Math.floor(mapH / 2);
+        const [windCenterX, windCenterY] = tileToScreen(windMapCx, windMapCy, 0);
+        // Find max radius of non-void tiles (cached — only recompute when tilemap changes)
+        let visibleRadius = 0;
+        for (let ty2 = 0; ty2 < mapH; ty2 += 4) {
+          for (let tx2 = 0; tx2 < mapW; tx2 += 4) {
+            const tile = decodedTiles[ty2 * mapW + tx2];
+            if (!tile || (tile.terrain === 0 && tile.elevation === 0)) continue;
+            const dr = Math.sqrt((tx2 - windMapCx) ** 2 + (ty2 - windMapCy) ** 2);
+            if (dr > visibleRadius) visibleRadius = dr;
+          }
+        }
+        // Convert tile radius to world-space extent (isometric)
+        const windExtentX = visibleRadius * TILE_W * 0.55;
+        const windExtentY = visibleRadius * TILE_H * 0.55;
+        const windLeft = windCenterX - windExtentX;
+        const windRight = windCenterX + windExtentX;
+        const windTop = windCenterY - windExtentY;
+        const windBottom = windCenterY + windExtentY;
+
+        // Spawn new streaks at left edge of tilemap area
+        // maxLife must be long enough to cross the full tilemap width
+        const windWidth = windRight - windLeft;
+        if (windStreaks.length < MAX_WIND_STREAKS && Math.random() < windStrength * 0.8) {
+          const spd = 4 + Math.random() * 5;
+          windStreaks.push({
+            x: windLeft - 50,
+            y: windTop + Math.random() * (windBottom - windTop),
+            len: 120 + Math.random() * 200,
+            speed: spd,
+            alpha: 0,
+            life: 0,
+            maxLife: Math.ceil((windWidth + 250) / spd), // enough frames to cross entire town
+          });
+        }
+
+        ctx.save();
+        ctx.lineWidth = 2.5;
+        for (let i = windStreaks.length - 1; i >= 0; i--) {
+          const s = windStreaks[i];
+          s.x += s.speed;
+          s.life++;
+          // Fade in/out
+          const lifeRatio = s.life / s.maxLife;
+          if (lifeRatio < 0.2) s.alpha = lifeRatio / 0.2 * 0.7 * windStrength;
+          else if (lifeRatio > 0.7) s.alpha = (1 - lifeRatio) / 0.3 * 0.7 * windStrength;
+          else s.alpha = 0.7 * windStrength;
+
+          if (s.life >= s.maxLife || s.x > windRight) {
+            windStreaks.splice(i, 1);
+            continue;
+          }
+
+          ctx.strokeStyle = `rgba(255, 255, 255, ${s.alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(s.x + s.len, s.y - 6);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       // ── 2. BUILDINGS (depth-sorted) ──
 
       const hqImg = getClawdHQImage();
@@ -1084,24 +1371,203 @@ export default function TownCanvas() {
 
       }
 
-      // ── 3. PARTICLES (skip when zoomed out) ──
-      if (showAnim && camScale >= 0.12) {
-        for (const p of particles) {
-          p.life++;
-          p.x += p.vx;
-          p.y += p.vy;
-          const lifeRatio = p.life / p.maxLife;
-          let fadeAlpha = p.alpha;
-          if (lifeRatio < 0.1) fadeAlpha *= lifeRatio / 0.1;
-          else if (lifeRatio > 0.8) fadeAlpha *= (1 - lifeRatio) / 0.2;
-          if (fadeAlpha > 0.01) {
-            ctx.globalAlpha = fadeAlpha;
-            ctx.fillStyle = p.color;
-            ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+      // ── 2.1. RUINS (permanent burned-down houses) ──
+      initBurnSprites();
+      const ruins = store.ruins;
+      if (ruins.length > 0 && decodedTiles && mapW > 0) {
+        const burnedSprite = burnSpriteCache.get('burned-house');
+        if (burnedSprite) {
+          for (const ruin of ruins) {
+            // Skip if still within 5-min fire window (fire is showing instead)
+            if (isStillBurning(ruin.burnedAt)) continue;
+
+            const centerX = ruin.x + 1;
+            const centerY = ruin.y + 1;
+            const tIdx = centerY * mapW + centerX;
+            const elev = decodedTiles[tIdx] ? decodedTiles[tIdx].elevation / 255 * 3 : 0;
+            const [sx, sy] = tileToScreen(centerX, centerY, elev);
+            if (sx < vl || sx > vr || sy < vt || sy > vb) continue;
+
+            // Draw at same size as a tier-1 house
+            const s = maxBoxW * 0.4 * 0.75;
+            ctx.drawImage(burnedSprite, sx - s / 2, sy - s + 4, s, s);
           }
-          if (p.life >= p.maxLife) resetParticle(p);
         }
-        ctx.globalAlpha = 1;
+      }
+
+      // ── 2.3. FIRE ANIMATION (houses currently burning) ──
+      if (showAnim && decodedTiles && mapW > 0) {
+        const burningHouses = getBurningHouses();
+        if (burningHouses.size > 0) {
+          const fireSprite1 = burnSpriteCache.get('fire-1');
+          const fireSprite2 = burnSpriteCache.get('fire-2');
+          if (fireSprite1 && fireSprite2) {
+            for (const [, entry] of burningHouses) {
+              const centerX = entry.plotX + 1;
+              const centerY = entry.plotY + 1;
+              const tIdx = centerY * mapW + centerX;
+              const elev = decodedTiles[tIdx] ? decodedTiles[tIdx].elevation / 255 * 3 : 0;
+              const [sx, sy] = tileToScreen(centerX, centerY, elev);
+              if (sx < vl || sx > vr || sy < vt || sy > vb) continue;
+
+              // Alternate fire frames every 10 animation frames
+              const fireSprite = (Math.floor(frame / 10) % 2 === 0) ? fireSprite1 : fireSprite2;
+              const s = maxBoxW * 0.5;
+              ctx.save();
+              ctx.globalAlpha = 0.85;
+              ctx.drawImage(fireSprite, sx - s / 2, sy - s + 4, s, s);
+              ctx.globalAlpha = 1;
+              ctx.restore();
+            }
+          }
+        }
+      }
+
+      // ── 2.5. BIRDS ──
+      initBirdSprites();
+      if (showAnim && camScale >= 0.1 && mapW > 0) {
+        updateBirds(mapW, mapH);
+        for (const bird of birds) {
+          const spriteKey = `bird-v${bird.variant}-${bird.wingsUp ? 'up' : 'down'}`;
+          const sprite = birdSpriteCache.get(spriteKey);
+          // Render at high elevation so birds fly above buildings
+          const [sx, sy] = tileToScreen(bird.tx, bird.ty, 8);
+          if (sx < vl - 50 || sx > vr + 50 || sy < vt - 50 || sy > vb + 50) continue;
+
+          if (sprite) {
+            const size = 144;
+            ctx.drawImage(sprite, sx - size / 2, sy - size / 2, size, size);
+          } else {
+            // Fallback: simple V shape
+            ctx.strokeStyle = 'rgba(30, 30, 35, 0.8)';
+            ctx.lineWidth = 2;
+            const wingY = bird.wingsUp ? -8 : 5;
+            ctx.beginPath();
+            ctx.moveTo(sx - 16, sy + wingY);
+            ctx.lineTo(sx, sy);
+            ctx.lineTo(sx + 16, sy + wingY);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // ── 3. PARTICLES — disabled (visual clutter at most zoom levels) ──
+
+      // ── 4. RAIN (world-space — only over tilemap) ──
+      if (showAnim) {
+        updateWeather();
+
+        if (rainIntensity > 0.01 && decodedTiles && mapW > 0) {
+          // Compute tilemap bounding box in world coords (only non-void tiles)
+          // Use map center + land/water radius as approximation
+          const mapCx = Math.floor(mapW / 2);
+          const mapCy = Math.floor(mapH / 2);
+          // Find approximate extent of visible tiles from center
+          let maxTileRadius = 0;
+          for (let ty2 = 0; ty2 < mapH; ty2 += 4) {
+            for (let tx2 = 0; tx2 < mapW; tx2 += 4) {
+              const tile = decodedTiles[ty2 * mapW + tx2];
+              if (!tile || (tile.terrain === 0 && tile.elevation === 0)) continue;
+              const dr = Math.sqrt((tx2 - mapCx) ** 2 + (ty2 - mapCy) ** 2);
+              if (dr > maxTileRadius) maxTileRadius = dr;
+            }
+          }
+
+          // Get world-space bounds of the tilemap area
+          const [tmCenterX, tmCenterY] = tileToScreen(mapCx, mapCy, 0);
+
+          // Darkening overlay — draw as a large diamond over the tilemap
+          ctx.save();
+          ctx.globalAlpha = rainIntensity * 0.25;
+          ctx.fillStyle = 'rgba(20, 25, 35, 1)';
+          const overlayR = maxTileRadius * TILE_W * 0.75;
+          ctx.beginPath();
+          ctx.moveTo(tmCenterX, tmCenterY - overlayR);
+          ctx.lineTo(tmCenterX + overlayR, tmCenterY);
+          ctx.lineTo(tmCenterX, tmCenterY + overlayR);
+          ctx.lineTo(tmCenterX - overlayR, tmCenterY);
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          ctx.restore();
+
+          // Rain drops in world space — constrained to tilemap area
+          const activeDrops = Math.floor(MAX_RAIN_DROPS * rainIntensity);
+          const dropSpeedWorld = 3 / camScale; // consistent visual speed
+          const dropLenWorld = 6 / camScale;
+          const windAngle = 0.3;
+
+          // Spawn area: visible viewport clamped to tilemap bounds
+          const spawnL = Math.max(vl, tmCenterX - overlayR);
+          const spawnR = Math.min(vr, tmCenterX + overlayR);
+          const spawnT = Math.max(vt, tmCenterY - overlayR);
+          const spawnB = Math.min(vb, tmCenterY + overlayR);
+
+          while (rainDrops.length < activeDrops) {
+            rainDrops.push({
+              x: spawnL + Math.random() * (spawnR - spawnL),
+              y: spawnT + Math.random() * (spawnB - spawnT),
+              speed: (8 + Math.random() * 6) / camScale,
+              len: (10 + Math.random() * 14) / camScale,
+              alpha: 0.3 + Math.random() * 0.4,
+            });
+          }
+          if (rainDrops.length > activeDrops) rainDrops.length = activeDrops;
+
+          ctx.lineWidth = 1.5 / camScale;
+          for (const drop of rainDrops) {
+            drop.y += drop.speed;
+            drop.x += Math.sin(windAngle) * drop.speed * 0.3;
+
+            // Wrap within tilemap bounds
+            if (drop.y > spawnB + drop.len) {
+              drop.y = spawnT - drop.len;
+              drop.x = spawnL + Math.random() * (spawnR - spawnL);
+            }
+            if (drop.x > spawnR) drop.x = spawnL;
+            if (drop.x < spawnL) drop.x = spawnR;
+
+            ctx.strokeStyle = `rgba(180, 210, 240, ${drop.alpha * rainIntensity})`;
+            ctx.beginPath();
+            ctx.moveTo(drop.x, drop.y);
+            ctx.lineTo(
+              drop.x + Math.sin(windAngle) * drop.len,
+              drop.y + Math.cos(windAngle) * drop.len,
+            );
+            ctx.stroke();
+          }
+
+          // Rain splashes in world coords
+          if (camScale >= 0.15) {
+            splashSpawnTimer++;
+            if (splashSpawnTimer >= 3 && rainSplashes.length < MAX_RAIN_SPLASHES) {
+              splashSpawnTimer = 0;
+              rainSplashes.push({
+                tx: spawnL + Math.random() * (spawnR - spawnL),
+                ty: spawnT + Math.random() * (spawnB - spawnT),
+                frame: 0,
+                maxFrame: 15 + Math.floor(Math.random() * 10),
+              });
+            }
+
+            for (let i = rainSplashes.length - 1; i >= 0; i--) {
+              const sp = rainSplashes[i];
+              sp.frame++;
+              if (sp.frame >= sp.maxFrame) {
+                rainSplashes.splice(i, 1);
+                continue;
+              }
+              const progress = sp.frame / sp.maxFrame;
+              const radius = (3 + progress * 6) / camScale;
+              const alpha = (1 - progress) * 0.4 * rainIntensity;
+              ctx.strokeStyle = `rgba(180, 210, 240, ${alpha})`;
+              ctx.lineWidth = 1 / camScale;
+              ctx.beginPath();
+              ctx.arc(sp.tx, sp.ty, radius, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+        }
       }
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);

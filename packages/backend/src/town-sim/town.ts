@@ -5,7 +5,7 @@ import { generateTerrain, clusterLand, generateSmallIsland } from './terrain';
 import { assignDistricts, generateRoads, createPlots, astarPath } from './layout';
 import { getAllArchetypes, getArchetypeForDistrict, ARCHETYPES } from './archetypes';
 import {
-  TownState, TownMap, TownStats, Tile, Building, Plot, TileCoord,
+  TownState, TownMap, TownStats, Tile, Building, Plot, TileCoord, Ruin,
   TERRAIN_WATER, TERRAIN_LAND,
   DISTRICT_NONE, DISTRICT_CIVIC, DISTRICT_RESIDENTIAL_LOW, DISTRICT_NAMES,
   TAG_NEAR_CENTER, TAG_NEAR_WATER, TAG_NEAR_MAIN_ROAD,
@@ -44,6 +44,7 @@ export function initializeTown(seed: number, width = 256, height = 256): TownSta
     archetypes: getAllArchetypes(),
     stats: emptyStats(),
     seed,
+    ruins: [],
   };
 
   // 8. Place starter NPC buildings
@@ -83,12 +84,19 @@ export function initializeSmallTown(seed: number, width = 256, height = 256): To
     archetypes: getAllArchetypes(),
     stats: emptyStats(),
     seed,
+    ruins: [],
   };
 
   // 7. Place castle at center for CLAWD
   placeCastleAtCenter(state);
 
-  // 8. Compute initial stats (no starter NPC buildings)
+  // 8. Place forest ring around castle
+  placeForestRing(map, rng);
+
+  // 9. Scatter decorations across the town
+  scatterDecorations(map, rng);
+
+  // 10. Compute initial stats (no starter NPC buildings)
   state.stats = computeStats(state);
 
   return state;
@@ -121,30 +129,100 @@ function generateInitialRoads(map: TownMap): void {
   const cx = Math.floor(map.width / 2);
   const cy = Math.floor(map.height / 2);
 
-  // 4 road spokes: N, E, S, W — from moat bridge to town edge
-  const directions: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-
-  for (const [ddx, ddy] of directions) {
-    // Start from just outside moat (radius 5) to town edge (radius 14)
-    for (let r = 5; r <= 14; r++) {
-      const x = cx + ddx * r;
-      const y = cy + ddy * r;
-      if (!inBounds(map, x, y)) continue;
-      const idx = y * map.width + x;
-      if (map.tiles[idx].terrain !== TERRAIN_WATER) {
-        map.tiles[idx].road = 1; // main road
-      }
+  const setRoad = (x: number, y: number, roadType: number = 1) => {
+    if (!inBounds(map, x, y)) return;
+    const idx = y * map.width + x;
+    if (map.tiles[idx].terrain !== TERRAIN_WATER) {
+      map.tiles[idx].road = roadType;
     }
+  };
+
+  const setBridge = (x: number, y: number) => {
+    if (!inBounds(map, x, y)) return;
+    const idx = y * map.width + x;
+    map.tiles[idx].terrain = TERRAIN_LAND;
+    map.tiles[idx].elevation = 100;
+    map.tiles[idx].road = 1;
+  };
+
+  // 1. Cardinal spokes (N/E/S/W) — from radius 2 to town edge (radius 14)
+  const cardinals: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+
+  for (const [ddx, ddy] of cardinals) {
+    // Inner spoke: radius 2 (just outside castle footprint)
+    setRoad(cx + ddx * 2, cy + ddy * 2);
+
     // Bridge across moat (radius 3-4)
     for (let r = 3; r <= 4; r++) {
-      const x = cx + ddx * r;
-      const y = cy + ddy * r;
-      if (!inBounds(map, x, y)) continue;
-      const idx = y * map.width + x;
-      // Convert moat tile to land for the bridge
-      map.tiles[idx].terrain = TERRAIN_LAND;
-      map.tiles[idx].elevation = 100;
-      map.tiles[idx].road = 1;
+      setBridge(cx + ddx * r, cy + ddy * r);
+    }
+
+    // Outer spoke: radius 5 to town edge
+    for (let r = 5; r <= 14; r++) {
+      setRoad(cx + ddx * r, cy + ddy * r);
+    }
+  }
+
+  // 2. Inner ring road at radius ~6 — connects spokes in civic zone
+  const innerRing = 6;
+  const steps = 64;
+  for (let i = 0; i < steps; i++) {
+    const angle = (2 * Math.PI * i) / steps;
+    const rx = Math.round(cx + innerRing * Math.cos(angle));
+    const ry = Math.round(cy + innerRing * Math.sin(angle));
+    setRoad(rx, ry);
+  }
+
+  // 3. Outer ring road at radius ~10 — connects spokes in residential zone
+  const outerRing = 10;
+  for (let i = 0; i < steps; i++) {
+    const angle = (2 * Math.PI * i) / steps;
+    const rx = Math.round(cx + outerRing * Math.cos(angle));
+    const ry = Math.round(cy + outerRing * Math.sin(angle));
+    setRoad(rx, ry, 2); // secondary road
+  }
+
+  // 4. Diagonal spokes (NE/SE/SW/NW) — from moat bridge to outer ring
+  const diagonals: [number, number][] = [[1, -1], [1, 1], [-1, 1], [-1, -1]];
+
+  for (const [ddx, ddy] of diagonals) {
+    // Bridge across moat for diagonals too
+    for (let r = 3; r <= 4; r++) {
+      const x = cx + Math.round(ddx * r * 0.707);
+      const y = cy + Math.round(ddy * r * 0.707);
+      setBridge(x, y);
+    }
+    // Road from radius 5 to outer ring
+    for (let r = 5; r <= 12; r++) {
+      const x = cx + Math.round(ddx * r * 0.707);
+      const y = cy + Math.round(ddy * r * 0.707);
+      setRoad(x, y);
+    }
+  }
+
+  // 5. Local connector roads between spokes in civic zone (radius 5-8)
+  //    Add short perpendicular stubs off each spoke to create plot adjacency
+  for (const [ddx, ddy] of cardinals) {
+    for (let r = 5; r <= 8; r += 2) {
+      // Place local roads perpendicular to the spoke
+      const px = -ddy; // perpendicular direction
+      const py = ddx;
+      for (let offset = 1; offset <= 3; offset++) {
+        setRoad(cx + ddx * r + px * offset, cy + ddy * r + py * offset, 3);
+        setRoad(cx + ddx * r - px * offset, cy + ddy * r - py * offset, 3);
+      }
+    }
+  }
+
+  // 6. Local connector roads between spokes in residential zone (radius 9-13)
+  for (const [ddx, ddy] of cardinals) {
+    for (let r = 9; r <= 13; r += 3) {
+      const px = -ddy;
+      const py = ddx;
+      for (let offset = 1; offset <= 4; offset++) {
+        setRoad(cx + ddx * r + px * offset, cy + ddy * r + py * offset, 3);
+        setRoad(cx + ddx * r - px * offset, cy + ddy * r - py * offset, 3);
+      }
     }
   }
 }
@@ -168,7 +246,111 @@ function placeCastleAtCenter(state: TownState): void {
   state.plots.set(plotId, castlePlot);
 
   // Place holder_tier5 building for CLAWD
-  placeBuilding(state, castlePlot, 'holder_tier5', null, 'Clawd Architect HQ');
+  placeBuilding(state, castlePlot, 'holder_tier5', 'clawd-architect-hq', 'Clawd Architect HQ');
+}
+
+function placeForestRing(map: TownMap, rng: PRNG): void {
+  const cx = Math.floor(map.width / 2);
+  const cy = Math.floor(map.height / 2);
+  const INNER_R = 5;  // just outside the moat
+  const OUTER_R = 10; // before outer residential zone
+
+  for (let y = cy - OUTER_R; y <= cy + OUTER_R; y++) {
+    for (let x = cx - OUTER_R; x <= cx + OUTER_R; x++) {
+      const dx = x - cx, dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < INNER_R || dist > OUTER_R) continue;
+
+      const idx = y * map.width + x;
+      const t = map.tiles[idx];
+      if (t.terrain === TERRAIN_WATER) continue;
+      if (t.road > 0) continue;
+      if (t.buildingId > 0) continue;
+
+      // ~60% density for a dense forest feel, mix of trees and bushes
+      if (rng.next() < 0.6) {
+        t.clusterId = rng.next() < 0.85 ? 1 : 2; // 85% tree, 15% bush
+      }
+    }
+  }
+}
+
+function scatterDecorations(map: TownMap, rng: PRNG): void {
+  const cx = Math.floor(map.width / 2);
+  const cy = Math.floor(map.height / 2);
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const idx = y * map.width + x;
+      const t = map.tiles[idx];
+      if (t.terrain === TERRAIN_WATER) continue;
+      if (t.road > 0) continue;
+      if (t.buildingId > 0) continue;
+      if (t.clusterId > 0) continue; // already has decoration
+
+      const dx = x - cx, dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Skip castle area and forest ring (already decorated)
+      if (dist <= 10) continue;
+
+      // ~25% chance to place a decoration on open land
+      if (rng.next() > 0.25) continue;
+
+      // Weighted random decoration type
+      const r = rng.next();
+      if (r < 0.20) {
+        t.clusterId = 1; // tree
+      } else if (r < 0.30) {
+        t.clusterId = 2; // bush
+      } else if (r < 0.36) {
+        t.clusterId = 3; // rock
+      } else if (r < 0.40) {
+        t.clusterId = 5; // bench
+      } else if (r < 0.46) {
+        t.clusterId = 6; // fence
+      } else if (r < 0.52) {
+        t.clusterId = 7; // hedge
+      } else if (r < 0.58) {
+        t.clusterId = 8; // market stall
+      } else if (r < 0.66) {
+        t.clusterId = 9; // crate
+      } else if (r < 0.74) {
+        t.clusterId = 10; // flower garden
+      } else if (r < 0.82) {
+        t.clusterId = 11; // lamp post
+      } else if (r < 0.90) {
+        t.clusterId = 12; // hay bale
+      } else {
+        t.clusterId = 13; // wagon
+      }
+    }
+  }
+
+  // Add tree line along the coast (near water edge)
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const idx = y * map.width + x;
+      const t = map.tiles[idx];
+      if (t.terrain === TERRAIN_WATER || t.road > 0 || t.buildingId > 0 || t.clusterId > 0) continue;
+
+      // Check if adjacent to water
+      let nearWater = false;
+      for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+        const nx = x + ddx, ny = y + ddy;
+        if (nx >= 0 && nx < map.width && ny >= 0 && ny < map.height) {
+          if (map.tiles[ny * map.width + nx].terrain === TERRAIN_WATER) {
+            nearWater = true;
+            break;
+          }
+        }
+      }
+
+      if (nearWater && rng.next() < 0.7) {
+        t.clusterId = rng.next() < 0.8 ? 1 : 2; // trees and bushes along coast
+      }
+    }
+  }
 }
 
 function createNullBuilding(): Building {
@@ -407,10 +589,10 @@ export function placeBuilding(
   plot.occupied = true;
   plot.buildingId = id;
 
-  // Mark tiles
+  // Mark all tiles in the plot area (full 3x3, not just archetype footprint)
   const { map } = state;
-  for (let dy = 0; dy < Math.min(arch.footprint.h, plot.height); dy++) {
-    for (let dx = 0; dx < Math.min(arch.footprint.w, plot.width); dx++) {
+  for (let dy = 0; dy < plot.height; dy++) {
+    for (let dx = 0; dx < plot.width; dx++) {
       const tx = plot.originX + dx, ty = plot.originY + dy;
       if (tx < map.width && ty < map.height) {
         map.tiles[ty * map.width + tx].buildingId = id;
@@ -419,4 +601,10 @@ export function placeBuilding(
   }
 
   return building;
+}
+
+// ── Add a ruin to town state ──────────────────────────────────────
+
+export function addRuin(state: TownState, ruin: Ruin): void {
+  state.ruins.push(ruin);
 }

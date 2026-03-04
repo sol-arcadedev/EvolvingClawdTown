@@ -64,27 +64,27 @@ export function screenToTile(
 // ── Terrain/district color palettes ────────────────────────────
 
 const TERRAIN_COLORS: Record<number, string> = {
-  0: '#1a4a80', // water — dark blue
-  1: '#6a9a55', // land — bright green
-  2: '#b09860', // hill — warm sandy tan
-  3: '#2a7a2a', // forest — deep rich green
+  0: '#4a90b8', // water — warm blue
+  1: '#7bb050', // land — vibrant grass green
+  2: '#c8a960', // hill — warm sandy
+  3: '#4a8a35', // forest — rich green
 };
 
 const DISTRICT_TINTS: Record<number, string> = {
   0: '',            // none — use terrain color
-  1: '#70b060',     // residential_low — leafy green
-  2: '#c0a050',     // residential_high — warm gold
-  3: '#d4a030',     // commercial — bright amber
-  4: '#909090',     // industrial — light gray
-  5: '#7088c0',     // civic — clear blue
-  6: '#40c840',     // park — vivid green
-  7: '#50a8b8',     // harbor — bright teal
+  1: '#80c060',     // residential_low — warm leafy
+  2: '#d4b060',     // residential_high — richer gold
+  3: '#d49040',     // commercial — terracotta amber
+  4: '#a09070',     // industrial — warm tan
+  5: '#c0a860',     // civic — warm gold
+  6: '#50c850',     // park — vivid green
+  7: '#70b8a0',     // harbor — warm sandy-teal
 };
 
 const ROAD_COLORS: Record<number, string> = {
-  1: '#c0c0c0', // main
-  2: '#909090', // secondary
-  3: '#707070', // local
+  1: '#b08060', // main — warm brown cobblestone
+  2: '#9b7050', // secondary — medium brown
+  3: '#8a6545', // local — darker brown path
 };
 
 export function getTileColor(tile: DecodedTile): string {
@@ -97,6 +97,6 @@ export function getTileColor(tile: DecodedTile): string {
 
 export function getWaterColor(frame: number, tileX: number, tileY: number): string {
   const phase = (frame * 0.02 + tileX * 0.1 + tileY * 0.1) % 1;
-  const l = 18 + Math.sin(phase * Math.PI * 2) * 6;
-  return `hsl(215, 55%, ${l}%)`;
+  const l = 35 + Math.sin(phase * Math.PI * 2) * 8;
+  return `hsl(195, 55%, ${l}%)`;
 }

@@ -38,12 +38,15 @@ export function applyTickToWallet(wallet: WalletRow, totalSupply: bigint): Walle
     buildProgress = Math.min(100, buildProgress + effectiveRate);
   }
 
-  // Tier evolution: when fully built and can upgrade
-  if (buildProgress >= 100 && houseTier < maxTier) {
+  // Tier evolution: advance through all qualifying tiers at once
+  while (buildProgress >= 100 && houseTier < maxTier) {
     houseTier += 1;
-    buildProgress = 0;
+    if (houseTier < maxTier) {
+      buildProgress = 0;
+      const effectiveRate = BASE_BUILD_RATE * buildSpeedMult * (1 + pct * 0.5);
+      buildProgress = Math.min(100, effectiveRate);
+    }
   }
-  // Cap at 100 if at max tier (fully built, no more upgrades available)
 
   // Repair damage over time
   if (damagePct > 0) {

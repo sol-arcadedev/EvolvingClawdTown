@@ -149,6 +149,14 @@ export type TownAction =
   | { type: 'CREATE_PLOT'; origin: TileCoord; width: number; height: number; district: DistrictType }
   | { type: 'PLACE_DECORATION'; position: TileCoord; decorationType: string };
 
+// ── Ruin (permanent burned-down house) ────────────────────────────
+export interface Ruin {
+  plotX: number;
+  plotY: number;
+  burnedAt: number;       // timestamp ms
+  formerOwner: string;    // wallet address
+}
+
 // ── Town State ─────────────────────────────────────────────────────
 export interface TownState {
   map: TownMap;
@@ -157,6 +165,7 @@ export interface TownState {
   archetypes: Map<string, BuildingArchetype>;
   stats: TownStats;
   seed: number;
+  ruins: Ruin[];
 }
 
 // ── Render tile for frontend ───────────────────────────────────────

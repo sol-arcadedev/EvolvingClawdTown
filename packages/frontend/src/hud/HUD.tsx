@@ -390,6 +390,7 @@ function BuildingTooltip() {
   const tier = Math.min(w.houseTier, 5);
   const tierName = TIER_NAMES[tier] ?? 'Unknown';
   const isBuilding = w.buildProgress < 100;
+  const isAllocated = !w.customImageUrl && !w.buildingName && hoveredHouse !== 'clawd-architect-hq';
 
   // Use pinned position if mouse is on the tooltip, otherwise follow cursor
   const pos = pinned && pinnedPos.current ? pinnedPos.current : hoverPos;
@@ -424,8 +425,8 @@ function BuildingTooltip() {
         <span style={{ ...styles.tooltipTier, color: accentColor, borderColor: accentDim }}>
           T{tier}
         </span>
-        <span style={styles.tooltipTierName}>{w.buildingName || tierName}</span>
-        {isBuilding && <span style={styles.tooltipBuilding}>BUILDING</span>}
+        <span style={styles.tooltipTierName}>{isAllocated ? 'Allocated Plot' : (w.buildingName || tierName)}</span>
+        {isBuilding && !isAllocated && <span style={styles.tooltipBuilding}>BUILDING</span>}
       </div>
 
       {/* AI style info */}
@@ -482,11 +483,16 @@ function BuildingTooltip() {
       )}
 
       {/* Clawd's comment */}
-      {w.clawdComment && (
+      {w.clawdComment ? (
         <div style={styles.tooltipClawdComment}>
           <span style={{ color: '#ff00c8' }}>CLAWD:</span> {w.clawdComment}
         </div>
-      )}
+      ) : isAllocated ? (
+        <div style={styles.tooltipClawdComment}>
+          <span style={{ color: '#ff00c8' }}>CLAWD:</span>{' '}
+          <span style={{ color: '#889' }}>Plot reserved. A unique house will be designed soon...</span>
+        </div>
+      ) : null}
 
       {/* AI-generated image preview */}
       {w.customImageUrl && (

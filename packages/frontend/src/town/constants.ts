@@ -21,18 +21,18 @@ export const TIER_SCALE: Record<number, number> = {
 };
 
 // Colors
-export const COL_BG = 0x08080f;
-export const COL_GROUND = 0x08080f;
-export const COL_ROAD = 0x111118;
-export const COL_GRID_LINE = 0x00cccc;
+export const COL_BG = 0x000000;
+export const COL_GROUND = 0x000000;
+export const COL_ROAD = 0x9b7653;
+export const COL_GRID_LINE = 0x8b7355;
 export const COL_GRID_LINE_ALPHA = 0.3;
 export const COL_LANE_MARKING = 0xccaa00;
 export const COL_CYAN = 0x00fff5;
 export const COL_MAGENTA = 0xff00c8;
 export const COL_GREEN = 0x00ff88;
 export const COL_RED = 0xff2244;
-export const COL_PANEL_BG = 0x0a0e14;
-export const COL_PANEL_BORDER = 0x00ff88;
+export const COL_PANEL_BG = 0x2a3a2a;
+export const COL_PANEL_BORDER = 0x88cc44;
 
 // Camera
 export const ZOOM_MIN = 0.1;
@@ -69,7 +69,7 @@ export const GROUND_SIZE_FACTOR = 0.4;
 
 // Effects
 export const PARTICLE_COUNT = 15;
-export const PARTICLE_COLORS = [0x00fff5, 0xff00c8, 0x00ff88];
+export const PARTICLE_COLORS = [0xffdd44, 0xff8844, 0x88dd44];
 
 // Console messages
 export const AI_MESSAGES = [

@@ -115,17 +115,26 @@ export class ChunkCache {
     // Compute bounding box of all tile screen positions in this chunk
     let minSX = Infinity, minSY = Infinity, maxSX = -Infinity, maxSY = -Infinity;
 
+    let hasVisibleTiles = false;
     for (let ty = startY; ty < endY; ty++) {
       for (let tx = startX; tx < endX; tx++) {
         const idx = ty * this.mapWidth + tx;
         const tile = this.tiles[idx];
-        const elev = tile ? tile.elevation / 255 * 3 : 0; // scale elevation
+        if (!tile || (tile.terrain === 0 && tile.elevation === 0)) continue; // skip void
+        hasVisibleTiles = true;
+        const elev = tile.elevation / 255 * 3; // scale elevation
         const [sx, sy] = tileToScreen(tx, ty, elev);
         if (sx - TILE_W / 2 < minSX) minSX = sx - TILE_W / 2;
         if (sy - TILE_H / 2 < minSY) minSY = sy - TILE_H / 2;
         if (sx + TILE_W / 2 > maxSX) maxSX = sx + TILE_W / 2;
         if (sy + TILE_H / 2 > maxSY) maxSY = sy + TILE_H / 2;
       }
+    }
+
+    // If entire chunk is void, return a 1x1 empty canvas
+    if (!hasVisibleTiles) {
+      const cvs = makeCanvas(1, 1);
+      return { canvas: cvs, originX: 0, originY: 0, canvasW: 1, canvasH: 1, dirty: false };
     }
 
     const canvasW = Math.ceil(maxSX - minSX) + 2;
@@ -142,9 +151,12 @@ export class ChunkCache {
         const tile = this.tiles[idx];
         if (!tile) continue;
 
+        // Skip void water tiles (terrain=water + elevation=0)
+        if (tile.terrain === 0 && tile.elevation === 0) continue;
+
         const elev = tile.elevation / 255 * 3;
         const [sx, sy] = tileToScreen(tx, ty, elev);
-        drawTile(cctx, tile, sx - minSX + 1, sy - minSY + 1);
+        drawTile(cctx, tile, sx - minSX + 1, sy - minSY + 1, tx, ty);
       }
     }
 

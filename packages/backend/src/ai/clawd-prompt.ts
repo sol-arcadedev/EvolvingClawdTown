@@ -45,43 +45,60 @@ Respond with this exact JSON structure:
   "evolution_hint": "What this building might evolve into next if they keep holding"
 }
 
-IMAGE PROMPT RULES (CRITICAL — follow exactly):
-- Describe ONLY the building structure itself: shape, size, materials, colors, architectural features
-- The building must be a SINGLE ISOLATED OBJECT floating in empty space — nothing around it, nothing beneath it
-- Do NOT include ANY environment: no trees, no bushes, no flowers, no garden, no fence, no yard
-- Do NOT include ANY ground: no grass, no dirt, no path, no road, no stone floor, no pavement, no terrain, no water, no lake, no river
-- Do NOT include ANY background: no sky, no clouds, no mountains, no hills, no scenery, no landscape
-- Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
-- Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
-- Do NOT include camera or viewing angle words (top-down, side view, front view, isometric, etc.)
-- Keep under 25 words — ONLY the building itself, nothing else
-- IMPORTANT: All buildings share one tile grid. Describe buildings as if they are miniature models sitting on a table, all at the same consistent scale relative to each other. A tier-1 shack is small, a tier-5 castle is large, but they exist in the same world at the same scale.
-- Good example: "a small one-story wooden shack with a tin roof and a single window"
-- Bad example: "a stone cottage surrounded by pine trees on a grassy hill with a winding path"
+IMAGE PROMPT RULES — YOU MUST FOLLOW THESE EXACTLY OR THE IMAGE WILL FAIL:
 
-Building scale by tier (relative to each other — imagine them side by side):
-- Tier 1 (tiny holder): Small one-story wooden shack, simple hut, lean-to shelter (1 tile footprint)
-- Tier 2 (small holder): Modest stone cottage, small shop with awning (1 tile, slightly taller)
-- Tier 3 (medium holder): Two-story timber building, watchtower, workshop (taller, wider base)
-- Tier 4 (large holder): Grand stone hall, tall tower with balconies (2+ stories, imposing)
-- Tier 5 (whale): Castle, palace, cathedral — tallest and most ornate (3+ stories)
+The image_prompt MUST be 8-15 words describing ONLY the building. Nothing else.
 
-BEHAVIORAL REACTIONS (override tier guidelines when behavior conflicts):
-- If "Prodigal Son": building MUST show visible repair work — patched walls, fresh mortar on old cracks, replaced roof sections
-- If "Stone Foundation": building should look ancient, deeply rooted, weathered but unbreakable — no decay, only permanence
-- If "Relentless Accumulator": building grows additions and wings — each buy adds structure, nothing is demolished
-- If "Hyperactive": building looks busy, scaffolded, always under construction — multiple doorways, ladders, work in progress
-- If "Net Distributor": building is stripped down, bare framework visible, materials being carted away
-- If "Fresh Arrival": clean, new construction — fresh-cut lumber, bright mortar, no weathering yet
-- If "Frequent Flyer": building has character from many redesigns — layers of different styles visible
+FORMAT: "[adjective] [material] [building type] with [color] [roof style]"
 
-Physical features by trading personality:
-- Diamond Hand / Long Holder: Tall, well-maintained, ornate carvings, warm glowing windows
-- Active Trader / Flipper: Unusual shape, multiple additions, busy-looking exterior
-- Whale: Massive footprint, multiple stories, impressive scale
-- Small Holder: Cozy, compact, charming details
-- New Arrival: Fresh lumber, simple construction, small but clean
-- Seller / Dumper: Cracks in walls, missing roof tiles, broken door, boarded windows`;
+MANDATORY:
+- ONLY the building structure: walls, roof, door, windows, chimney, balcony, awning, tower
+- Warm materials: wood, stone, brick, timber, thatch, clay, stucco, plaster, adobe
+- Colorful roof: red, orange, green, yellow, terracotta, brown, blue, pink, purple
+- EVERY building must look DIFFERENT — vary the shape, height, roof style, wall color, and building type
+
+FORBIDDEN (if you include ANY of these, the image BREAKS):
+- NO trees, bushes, plants, flowers, ivy, vines, moss, shrubs, vegetation
+- NO garden, yard, fence, hedge, path, road, walkway, stones, rocks
+- NO ground, grass, dirt, terrain, landscape, scenery, hill, water
+- NO objects: barrel, cart, sign, well, fountain, lantern, bench, crate
+- NO people, animals, characters
+- NO style words: pixel art, isometric, 3d, retro, cyberpunk
+- NO camera words: top-down, side view, front view
+
+BUILDING TYPE VARIETY — pick different types each time! Don't always use "shack" or "cottage":
+Houses: cottage, cabin, bungalow, villa, townhouse, chalet, farmhouse
+Shops: bakery, general store, market stall, tavern, inn, workshop, smithy
+Special: windmill, clock tower, lighthouse, barn, chapel, granary, watchtower
+Structures: tent, pavilion, gazebo, greenhouse, boathouse, stable
+
+EXAMPLES OF CORRECT image_prompt VALUES:
+- "cozy red-roofed stone cottage with round door and chimney"
+- "yellow stucco bakery with green awning and arched windows"
+- "tall timber windmill with orange sails and brick base"
+- "small pink plaster tavern with terracotta roof and wooden balcony"
+- "rustic brown barn with large double doors and hay loft"
+- "blue-walled market stall with striped canvas awning"
+- "white chapel with pointed red steeple and stained glass"
+- "green-roofed wooden inn with wraparound porch"
+- "adobe watchtower with flat roof and narrow windows"
+- "brick smithy with smoking chimney and heavy wooden door"
+
+EXAMPLES OF WRONG image_prompt VALUES (NEVER do this):
+- "a cozy cottage surrounded by oak trees with a stone path" ← HAS ENVIRONMENT
+- "wooden house with flower boxes and a garden fence" ← HAS OBJECTS
+- "stone manor with ivy-covered walls beside a well" ← HAS VEGETATION AND OBJECTS
+
+Building quality and variety by tier:
+- Tier 1: Simple structures — shacks, tents, lean-tos, market stalls, tiny huts
+- Tier 2: Small buildings — cottages, cabins, small shops, bakeries, stables
+- Tier 3: Medium buildings — houses, taverns, inns, workshops, windmills
+- Tier 4: Grand buildings — villas, manors, clock towers, large inns, chapels
+- Tier 5: Magnificent structures — castles, cathedrals, palaces, grand halls
+
+IMPORTANT: Make each building UNIQUE. Vary roof colors, wall materials, building shapes, and architectural details. The town should look like a vibrant diverse village, NOT rows of identical houses.
+
+Seller/damaged buildings: add "cracked" or "damaged" or "weathered" or "leaning" to the prompt`;
 
 export const DAMAGE_DECISION_PROMPT = `A holder has SOLD tokens. Describe the damage to their building.
 
@@ -99,16 +116,11 @@ Respond with this exact JSON structure:
 }
 
 IMAGE PROMPT RULES (CRITICAL — follow exactly):
-- Describe ONLY the damaged building structure itself: shape, materials, and damage features
-- The building must be a SINGLE ISOLATED OBJECT floating in empty space — nothing around it, nothing beneath it
-- Do NOT include ANY environment: no trees, no bushes, no flowers, no garden, no fence, no yard
-- Do NOT include ANY ground: no grass, no dirt, no path, no road, no stone floor, no pavement, no terrain, no water
-- Do NOT include ANY background: no sky, no clouds, no mountains, no scenery, no landscape
-- Do NOT include rendering words (pixel art, isometric, 3d, realistic, voxel, retro, etc.)
-- Do NOT include style keywords (cyberpunk, neon, vaporwave, futuristic, sci-fi, etc.)
-- Do NOT include camera or viewing angle words (top-down, side view, front view, isometric, etc.)
-- Keep under 25 words — ONLY the damaged building itself
-- Include physical damage: cracks in walls, missing roof tiles, broken door, boarded windows, crumbling chimney`;
+- Describe ONLY the damaged building in under 10 words: shape, material, roof color, damage
+- TINY simple building, same small size as all other buildings
+- ABSOLUTELY NOTHING except the building — no trees, plants, ground, path, garden, fence, flowers, grass, yard, scenery
+- Do NOT include rendering or style words
+- Include damage: cracks, missing tiles, broken door, boarded windows`;
 
 export const CLAWD_HQ_PROMPT = `You are designing YOUR OWN castle — Clawd's personal palace, the crown jewel of Claude Town.
 
@@ -177,16 +189,26 @@ Respond with valid JSON only. No markdown, no code fences.`;
 
 // Architectural themes to inject variety
 export const ARCHITECTURE_THEMES = [
-  'weathered stone',
-  'dark timber and thatch',
-  'ornate marble',
-  'mossy cobblestone',
-  'enchanted crystal',
-  'rustic brick and iron',
-  'polished granite',
-  'carved sandstone',
-  'ivy-covered limestone',
-  'gilded copper and oak',
+  'warm oak and golden thatch',
+  'terracotta tiles and whitewashed walls',
+  'red brick and copper trim',
+  'sun-bleached sandstone',
+  'painted timber and clay shingles',
+  'honey-colored limestone',
+  'rustic fieldstone and cedar',
+  'warm chestnut beams and slate',
+  'bright stucco and tile roof',
+  'pink plaster and wrought iron balcony',
+  'blue clapboard and white trim',
+  'adobe walls and flat clay roof',
+  'half-timbered walls and steep pitched roof',
+  'yellow stucco and green shutters',
+  'rough-hewn log and stone chimney',
+  'whitewashed stone and blue dome',
+  'bamboo frame and thatched palm roof',
+  'orange brick and arched doorways',
+  'slate and timber with dormer windows',
+  'coral stone and turquoise shutters',
 ];
 
 export function getRandomTheme(): string {
@@ -251,14 +273,14 @@ const BEHAVIOR_THEME_MAP: Record<string, Record<BehaviorPattern, string>> = {
     'Standard Citizen': 'solid oak beams and dressed stone',
   },
   'Degen Flipper': {
-    'Prodigal Son': 'mismatched salvaged planks and rusted sheet metal',
-    'Stone Foundation': 'weathered but sturdy reclaimed wood',
-    'Relentless Accumulator': 'stacked crates and hasty mortar',
-    'Hyperactive': 'scaffolding that became the walls',
-    'Net Distributor': 'stripped-down beams and exposed wiring',
-    'Frequent Flyer': 'patchwork of six different building styles',
-    'Fresh Arrival': 'cheap plywood and quick-set concrete',
-    'Standard Citizen': 'mismatched salvaged planks and rusted sheet metal',
+    'Prodigal Son': 'colorful patched-together timber and reclaimed brick',
+    'Stone Foundation': 'weathered but sturdy reclaimed wood with bright paint',
+    'Relentless Accumulator': 'stacked crates and hasty mortar with a colorful awning',
+    'Hyperactive': 'scaffolding-style open frame with canvas roof and bright flags',
+    'Net Distributor': 'rough timber market stall with striped awning',
+    'Frequent Flyer': 'eclectic patchwork of colorful building styles',
+    'Fresh Arrival': 'simple painted timber with a cheerful colored roof',
+    'Standard Citizen': 'rustic wooden planks with a painted door and clay roof',
   },
   'Whale Move': {
     'Prodigal Son': 'obsidian and thunderstone with gold repair seams',
@@ -273,14 +295,14 @@ const BEHAVIOR_THEME_MAP: Record<string, Record<BehaviorPattern, string>> = {
 };
 
 const DEFAULT_THEME_MAP: Record<BehaviorPattern, string> = {
-  'Prodigal Son': 'patched-over cracks and fresh mortar on old stone',
-  'Stone Foundation': 'deep-rooted oak and warm hearthstone',
-  'Relentless Accumulator': 'reinforced iron and polished marble',
-  'Hyperactive': 'busy brickwork and copper pipe fittings',
-  'Net Distributor': 'hollow timber framework and bare nails',
-  'Frequent Flyer': 'layered stone and timber from many eras',
-  'Fresh Arrival': 'fresh-cut pine and clean white mortar',
-  'Standard Citizen': 'solid oak beams and dressed stone',
+  'Prodigal Son': 'repaired stone and timber with colorful new roof tiles',
+  'Stone Foundation': 'warm stone walls and sturdy oak beams with terracotta roof',
+  'Relentless Accumulator': 'polished brick and iron trim with a grand colored roof',
+  'Hyperactive': 'bright painted brickwork with copper weathervane',
+  'Net Distributor': 'simple timber frame with canvas and wooden shutters',
+  'Frequent Flyer': 'eclectic mix of colorful materials from many styles',
+  'Fresh Arrival': 'fresh-cut pine and clean white plaster with a bright painted door',
+  'Standard Citizen': 'solid oak beams and dressed stone with a warm colored roof',
 };
 
 export function getBehaviorTheme(

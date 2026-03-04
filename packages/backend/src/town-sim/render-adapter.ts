@@ -90,7 +90,7 @@ export function encodeDecorationList(state: TownState): EncodedDecoration[] {
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       const t = map.tiles[y * map.width + x];
-      if (t.clusterId > 0 && t.clusterId <= 7) {
+      if (t.clusterId > 0 && t.clusterId <= 13) {
         result.push({ x, y, type: t.clusterId });
       }
     }
@@ -99,12 +99,29 @@ export function encodeDecorationList(state: TownState): EncodedDecoration[] {
   return result;
 }
 
+export interface EncodedRuin {
+  x: number;
+  y: number;
+  burnedAt: number;
+  formerOwner: string;
+}
+
+export function encodeRuinList(state: TownState): EncodedRuin[] {
+  return (state.ruins || []).map(r => ({
+    x: r.plotX,
+    y: r.plotY,
+    burnedAt: r.burnedAt,
+    formerOwner: r.formerOwner,
+  }));
+}
+
 export interface TownSnapshot {
   width: number;
   height: number;
   tilemap: Buffer;
   buildings: EncodedBuilding[];
   decorations: EncodedDecoration[];
+  ruins: EncodedRuin[];
   seed: number;
 }
 
@@ -115,6 +132,7 @@ export function createTownSnapshot(state: TownState): TownSnapshot {
     tilemap: encodeTilemap(state),
     buildings: encodeBuildingList(state),
     decorations: encodeDecorationList(state),
+    ruins: encodeRuinList(state),
     seed: state.seed,
   };
 }
