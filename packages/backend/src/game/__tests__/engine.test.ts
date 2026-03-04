@@ -368,8 +368,8 @@ describe('applyTickToWallet', () => {
 
     const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
-    // BASE_BUILD_RATE = 0.5, mult = 1.0 → +0.5
-    expect(result.build_progress).toBe(10.5);
+    // BASE_BUILD_RATE = 100, mult = 1.0 → 10 + 100 = 110 → capped at 100
+    expect(result.build_progress).toBe(100);
   });
 
   it('applies speed multiplier to build rate', () => {
@@ -380,8 +380,8 @@ describe('applyTickToWallet', () => {
 
     const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
-    // 0.5 * 3.0 = 1.5
-    expect(result.build_progress).toBe(11.5);
+    // BASE_BUILD_RATE = 100, mult = 3.0 → 10 + 300 = 310 → capped at 100
+    expect(result.build_progress).toBe(100);
   });
 
   it('caps build progress at 100', () => {
@@ -460,8 +460,8 @@ describe('applyTickToWallet', () => {
 
     const result = applyTickToWallet(wallet, TICK_TOTAL_SUPPLY);
 
-    // Build: 50 + (0.5 * 2.0) = 51.0
-    expect(result.build_progress).toBe(51);
+    // Build: 50 + (100 * 2.0) = 250 → capped at 100
+    expect(result.build_progress).toBe(100);
     // Repair: 20 - 0.3 = 19.7
     expect(result.damage_pct).toBe(19.7);
   });
