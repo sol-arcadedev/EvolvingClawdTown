@@ -34,9 +34,9 @@ On-Chain Event
   → Wallet Analysis (Helius API, transaction history, DeFi activity)
   → Behavior Classification (8 patterns, see below)
   → Material Theme Selection (behavior + personality → building materials)
-  → Gemini AI Decision (building name, style, description, image prompt, witty comment)
+  → Claude AI Decision (building name, style, description, image prompt, witty comment)
   → Image Generation (Stable Diffusion with LoRA → pixel-art isometric sprite)
-  → Vision Validation (Gemini verifies isometric perspective, single building, no environment)
+  → Vision Validation (Claude verifies isometric perspective, single building, no environment)
   → Town Placement (plot assignment, road connection, decoration scatter)
   → Live Broadcast (WebSocket → frontend renders building in real time)
 ```
@@ -66,8 +66,8 @@ Each behavior pattern maps to specific building materials. Clawd never gives fli
 
 ### AI Stack
 
-- **Gemini 2.0 Flash** (Google Vertex AI), Clawd's brain for building decisions
-- **Gemini Vision** validates generated sprites meet isometric quality standards
+- **Claude** (Anthropic), Clawd's brain for building decisions
+- **Claude Vision** validates generated sprites meet isometric quality standards
 - **Stable Diffusion** (local WebUI/Forge), generates unique pixel-art building sprites
   - LoRAs: `pixelartredmond` (pixel art style) + `Isometric_Setting` (perspective) + `white_background` (clean isolation)
   - 3-layer validation: transparency check → vision validation → best-effort fallback
@@ -80,7 +80,7 @@ Every building gets a unique AI-generated pixel-art sprite:
 1. Clawd crafts an 8-15 word image prompt based on the building design
 2. Stable Diffusion generates a 512x512 isometric building with pixel-art LoRAs
 3. Background is flood-fill removed for transparency
-4. Gemini Vision validates: must show roof + two side faces in isometric 3/4 view
+4. Claude Vision validates: must show roof + two side faces in isometric 3/4 view
 5. Up to 3 attempts with escalating prompt refinement
 6. Result: a clean, isolated sprite ready for the tilemap
 
@@ -159,7 +159,7 @@ The town grows organically based on demand, never sprawling unnecessarily.
 | **Backend** | Express.js, WebSocket, TypeScript |
 | **Database** | PostgreSQL |
 | **Blockchain** | Solana (Helius WebSocket + RPC for real-time token events) |
-| **AI** | Google Vertex AI (Gemini 2.0 Flash), Stable Diffusion (local) |
+| **AI** | Anthropic Claude, Stable Diffusion (local) |
 | **Image Processing** | Sharp (background removal, transparency validation) |
 
 ### Architecture
@@ -169,7 +169,7 @@ Solana (Helius WebSocket)
   → Chain Listener (parses buy/sell/transfer events)
   → Game Engine (applies rules: tiers, damage, build boost, burn)
   → Decision Queue (batches AI calls, manages image generation)
-  → Clawd Agent (Gemini AI → building design + Stable Diffusion → sprite)
+  → Clawd Agent (Claude AI → building design + Stable Diffusion → sprite)
   → Town Planner (plot placement, road expansion, decoration)
   → WebSocket Broadcast (real-time frontend updates)
   → Pixi.js Canvas (isometric tilemap, animated sprites, live town)
@@ -184,7 +184,7 @@ Solana (Helius WebSocket)
 - Node.js 18+
 - PostgreSQL
 - Stable Diffusion WebUI or Forge (for image generation)
-- Google Cloud project with Vertex AI enabled (for Clawd's brain)
+- Anthropic API key (for Clawd's brain)
 - Helius API key (for Solana on-chain data)
 
 ### Environment
@@ -202,9 +202,8 @@ TOKEN_MINT_ADDRESS=your-token-mint
 
 # AI
 AI_ENABLED=true
-CLAWD_MODEL=gemini-2.0-flash-001
-GOOGLE_CLOUD_PROJECT=your-project
-GOOGLE_CLOUD_REGION=us-east5
+ANTHROPIC_API_KEY=your-api-key
+CLAWD_MODEL=claude-sonnet-4-6
 
 # Image Generation
 SD_ENABLED=true
