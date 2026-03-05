@@ -1,3 +1,9 @@
+Website: https://evolving-clawd-town.xyz
+Official X: https://x.com/ClawdTown_Sol
+X Community: https://x.com/i/communities/2026458921699889228
+
+Token CA: to be added
+
 # ClawdTown
 
 An AI-powered living town on Solana where every token holder gets a unique building designed by **Clawd**, a sophisticated lobster architect who judges your on-chain behavior and builds accordingly.
