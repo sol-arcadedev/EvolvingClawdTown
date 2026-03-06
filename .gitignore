@@ -5,6 +5,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+.claude/settings.local.json
 /screenshots/
 /CLAWDTOWN_README.md
 packages/frontend/public/generated/
