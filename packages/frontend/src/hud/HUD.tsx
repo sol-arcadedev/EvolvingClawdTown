@@ -92,6 +92,9 @@ function Header() {
         <a href="https://x.com/ClawdTown_Sol" target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
           Official X
         </a>
+        <a href="https://github.com/sol-arcadedev/EvolvingClawdTown" target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+          GitHub
+        </a>
       </div>
       <ConnectionStatus />
     </div>
